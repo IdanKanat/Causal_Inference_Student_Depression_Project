@@ -1,11 +1,5 @@
 # Applied Introduction to Causal Inference - Project - Estimation of Causal Effects of High Academic Pressure on Depression among Students
-This project applies causal inference methods to estimate the effect of high academic pressure on student depression. It was part of a *Causal Inference* course at Tel Aviv University (2025), during the 3rd year of our Data Science studies. As a team of 3, we combined DAG-based confounder selection, multiple causal estimators, and heterogeneity analysis to evaluate treatment effects.
-
-The dataset is **synthetic** (27,901 students) and was provided as part of the coursework. While it may not reflect all real-world complexities, it allows us to demonstrate causal methodology in practice.
-
----
-
-### Methodology
+This project applies causal inference methods to estimate the effect of high academic pressure on student depression. It has been a major part of a course we took - "Applied Introduction to Causal Inference" at Tel Aviv University department of Statistics (2025), during the 3rd year of our studies. As a team of 3, we combined DAG-based confounder selection, multiple causal estimators, and heterogeneity analysis to evaluate treatment effects.
 
 We structured our analysis around core causal inference assumptions (exchangeability, positivity, SUTVA), guided by a Directed Acyclic Graph (DAG). The analysis included:
 
@@ -17,14 +11,10 @@ We structured our analysis around core causal inference assumptions (exchangeabi
   - *Standardization* (logistic regression outcome models + bootstrapped SEs & CIs. Models are adjusted for confounding).  
   - *Inverse Probability of Treatment Weighting (IPTW) with Stabilized Weights (SW).* 
 - **CATE Estimation**:  
-  - Meta-learners (S & T-learners)  
-  - Base learners: Logistic Regression & Random Forest. 
+  - Meta-learners *(S & T-learners)*.
+  - Base learners for each meta-learner: Logistic Regression & Random Forest, each under different effect modifier specifications. 
 
----
-
-### Key Results
-
-- **ATE:** All causal estimators consistently estimated an increase in depression risk of ~0.35–0.40 under high academic pressure. Naïve estimates were upward-biased (~0.39). Mean CATEs were consistent around 0.32. All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect. Marked heterogeneity by age.
+Experimental results show that all causal estimators consistently estimated an increase in depression risk of ~0.35–0.40 under high academic pressure. Naïve estimates were upward-biased (~0.39). Mean CATEs were consistent around 0.32. All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect. Marked heterogeneity by age.
 
 ---
 
