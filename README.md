@@ -1,6 +1,6 @@
 # Applied Introduction to Causal Inference - Project - Estimation of Causal Effects of High Academic Pressure on Depression among Students
 Hello
-![_]()
+![_](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/67fb3fdd3475c7a460a87c98b0711f5939104078/IntroCausalInferenceProject_ThemePic_StudentDepression.png)
 The first, fine-tuning stage included:
 
 - *Preprocessing: tweet cleaning, tokenization and more.*
