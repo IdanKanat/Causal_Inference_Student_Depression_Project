@@ -13,8 +13,8 @@ More specifically, we structured our analysis around core causal inference assum
 - **CATE Estimation**:  
   - Meta-learners *(S & T-learners)*.
   - Base learners for each meta-learner: Logistic Regression & Random Forest, each under different effect modifier specifications. 
-
-Experimental results show that: 
+---
+### Experimental results:
 - All causal estimators consistently estimated an ***increase in depression risk of ~0.35–0.4 under high academic pressure***.
 - Naïve estimate was upward-biased (~0.39).
 - All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect.
