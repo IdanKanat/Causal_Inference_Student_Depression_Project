@@ -4,7 +4,7 @@ This project applies causal inference methods to estimate the effect of high aca
 We structured our analysis around core causal inference assumptions (exchangeability, positivity, SUTVA), guided by a Directed Acyclic Graph (DAG). The analysis included:
 
 - **Confounder selection via DAG** (minimal backdoor sets).  
-- **Positivity checks** (empirical overlap, strata violations).  
+- **Positivity checks** (empirical overlap, strata violations, etc.).  
 - **Propensity Score estimation**: multiple logistic regression models. 
 - **ATE Estimation**:  
   - *Naïve comparison*  
@@ -16,13 +16,7 @@ We structured our analysis around core causal inference assumptions (exchangeabi
 
 Experimental results show that all causal estimators consistently estimated an increase in depression risk of ~0.35–0.40 under high academic pressure. Naïve estimates were upward-biased (~0.39). Mean CATEs were consistent around 0.32. All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect. Marked heterogeneity by age.
 
----
-
-### Deliverables
-
-- **Code:** End-to-end R scripts implementing the causal pipeline.  
-- **Figures:** Positivity checks, PS distributions, ATE & CATE visualizations.  
-- **Final Report (PDF):** The full implementation details can be found [here](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/14b17fa9613ad7ab15d49402e3853a60157d9aa6/Intro%20to%20Causal%20Inference%20%E2%80%93%20Project%20Report%20%E2%80%93%20%20Student%20Depression%20Dataset%20-%20Idan%2C%20Yonatan%20%26%20Tomer%20-%204.9.2025.pdf)
+The full implementation details can be found in the [Final Report (PDF)](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/14b17fa9613ad7ab15d49402e3853a60157d9aa6/Intro%20to%20Causal%20Inference%20%E2%80%93%20Project%20Report%20%E2%80%93%20%20Student%20Depression%20Dataset%20-%20Idan%2C%20Yonatan%20%26%20Tomer%20-%204.9.2025.pdf)
 
 
 ![_](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/67fb3fdd3475c7a460a87c98b0711f5939104078/IntroCausalInferenceProject_ThemePic_StudentDepression.png)
