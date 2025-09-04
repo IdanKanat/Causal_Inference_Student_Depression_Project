@@ -7,27 +7,24 @@ The dataset is **synthetic** (27,901 students) and was provided as part of the c
 
 ### Methodology
 
-We structured our analysis around core causal inference assumptions (exchangeability, positivity, consistency), guided by a Directed Acyclic Graph (DAG). The analysis included:
+We structured our analysis around core causal inference assumptions (exchangeability, positivity, SUTVA), guided by a Directed Acyclic Graph (DAG). The analysis included:
 
 - **Confounder selection via DAG** (minimal backdoor sets).  
 - **Positivity checks** (empirical overlap, strata violations).  
-- **Propensity Score estimation**: multiple logistic regression models (age & CGPA continuous vs. quartiles).  
+- **Propensity Score estimation**: multiple logistic regression models. 
 - **ATE Estimation**:  
   - *Naïve comparison*  
-  - *Standardization* (logistic regression outcome models, bootstrapped SEs & CIs)  
-  - *IPTW with stabilized weights*  
+  - *Standardization* (logistic regression outcome models + bootstrapped SEs & CIs. Models are adjusted for confounding).  
+  - *Inverse Probability of Treatment Weighting (IPTW) with Stabilized Weights (SW).* 
 - **CATE Estimation**:  
-  - Meta-learners (S- and T-learners)  
-  - Base learners: Logistic Regression & Random Forest (500 trees via Ranger)  
-  - Effect modifiers: age, CGPA, study field, financial stress  
+  - Meta-learners (S & T-learners)  
+  - Base learners: Logistic Regression & Random Forest. 
 
 ---
 
 ### Key Results
 
-- **ATE:** All causal estimators consistently estimated an increase in depression risk of ~0.35–0.40 under high academic pressure. Naïve estimates were upward-biased (~0.39).  
-- **Statistical Significance:** All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect.  
-- **Heterogeneity (CATE):** Most modifiers showed homogeneous effects (~0.32), with stronger heterogeneity by **age quartile** (older students more affected), **study field**, and **financial stress**.  
+- **ATE:** All causal estimators consistently estimated an increase in depression risk of ~0.35–0.40 under high academic pressure. Naïve estimates were upward-biased (~0.39). Mean CATEs were consistent around 0.32. All 95% confidence intervals excluded 0, indicating robust evidence of a causal effect. Marked heterogeneity by age.
 
 ---
 
@@ -35,14 +32,7 @@ We structured our analysis around core causal inference assumptions (exchangeabi
 
 - **Code:** End-to-end R scripts implementing the causal pipeline.  
 - **Figures:** Positivity checks, PS distributions, ATE & CATE visualizations.  
-- **Final Report (PDF):** [Link here once uploaded].  
+- **Final Report (PDF):** The full implementation details can be found [here](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/14b17fa9613ad7ab15d49402e3853a60157d9aa6/Intro%20to%20Causal%20Inference%20%E2%80%93%20Project%20Report%20%E2%80%93%20%20Student%20Depression%20Dataset%20-%20Idan%2C%20Yonatan%20%26%20Tomer%20-%204.9.2025.pdf)
 
----
 
-### Notes
-
-- Dataset is **synthetic** and used for demonstration purposes only.  
-- Methodology is directly generalizable to real-world educational or psychological data.  
-
-The full implementation details can be found in the [Final Report (PDF)](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/14b17fa9613ad7ab15d49402e3853a60157d9aa6/Intro%20to%20Causal%20Inference%20%E2%80%93%20Project%20Report%20%E2%80%93%20%20Student%20Depression%20Dataset%20-%20Idan%2C%20Yonatan%20%26%20Tomer%20-%204.9.2025.pdf)
 ![_](https://github.com/IdanKanat/Causal_Inference_Student_Depression_Project/blob/67fb3fdd3475c7a460a87c98b0711f5939104078/IntroCausalInferenceProject_ThemePic_StudentDepression.png)
