@@ -1,0 +1,2113 @@
+---
+title: "IntroCausalInferenceProjectCode_StudentDepressionDataset_TomerYonatanIdan_4.9.2025"
+output:
+  word_document: default
+  html_document: default
+date: "2025-09-04"
+---
+### Required Libaries:
+```{r}
+# Required libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(patchwork)
+library(scales)
+library(ranger)
+set.seed(123)  # for reproducibility
+```
+
+
+### Loading the dataset:
+```{r}
+# Loading the dataset - CHANGE TO YOUR OWN DIRECRTORY IF NECESSARY:
+student_depression_df <-read.csv("C://Idan//Data Science TAU//2nd Semester - 3rd Year - 2024-2025//AppliedIntroductionToCausalInference//IntroCausalInferenceProject_StudentDepression//student_depression_dataset.csv")
+
+# Printing the dataset's head for a brief overview, in order to gain a high-level understanding of the project-data:
+head(student_depression_df)
+```
+
+
+# Description of the Dataset:
+```{r}
+# Summarizing the dataset into a brief description which would summarize the key characteristics of the features / columns / covariates' distribution:
+summary(student_depression_df)
+
+# Verify the column names:
+colnames(student_depression_df)
+```
+We'd want to replace the dots with spaces! So that the column naming format will appear neater & more readable :)
+
+
+```{r}
+# Verify the column names (replace dots with spaces for better readability):
+colnames(student_depression_df) <- gsub("\\.", " ", colnames(student_depression_df))
+
+# Remove leading and trailing spaces from column names (if any)
+colnames(student_depression_df) <- trimws(colnames(student_depression_df))
+
+# Correct the column name "Work Study Hours" to "Work / Study Hours"
+colnames(student_depression_df)[which(colnames(student_depression_df) == "Work Study Hours")] <- "Work / Study Hours"
+# Correct the column name "Have you ever had suicidal thoughts" to "Suicidal Thoughts"
+colnames(student_depression_df)[which(colnames(student_depression_df) == "Have you ever had suicidal thoughts")] <- "Suicidal Thoughts"
+# Verify that column names have been updated:
+colnames(student_depression_df)
+```
+This transformation worked!
+
+
+```{r}
+# Convert categorical variables to factors:
+student_depression_df$Gender <- as.factor(student_depression_df$Gender)
+student_depression_df$City <- as.factor(student_depression_df$City)
+student_depression_df$Degree <- as.factor(student_depression_df$Degree)
+student_depression_df$Profession <- as.factor(student_depression_df$Profession)
+
+# Ensure Financial Stress is treated as numeric, and handle any non-numeric values
+student_depression_df$`Financial Stress` <- as.numeric(as.character(student_depression_df$`Financial Stress`))
+
+# Convert binary "Yes/No" variables to 1/0 format:
+student_depression_df$`Suicidal Thoughts` <- ifelse(student_depression_df$`Suicidal Thoughts` == "Yes", 1, 0)
+student_depression_df$`Family History of Mental Illness` <- ifelse(student_depression_df$`Family History of Mental Illness` == "Yes", 1, 0)
+
+# For the sake of better interpretability at the moment, we plot Sleep Duration distribution before transforming it:
+ggplot(student_depression_df, aes(x = `Sleep Duration`)) +
+  geom_bar(fill = "pink", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Sleep Duration", x = "Sleep Duration", y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
+
+# As well as the Sleep Duration distributions, grouped by outcome (Depression):
+# Bar plot of Sleep Duration by Depression status
+ggplot(student_depression_df, aes(x = `Sleep Duration`, fill = factor(Depression))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Sleep Duration Distribution by Depression Status", x = "Sleep Duration", y = "Frequency", fill = "Depression Status") +
+  scale_fill_manual(values = c("red", "blue"), labels = c("No", "Yes")) +  # Custom colors for depression groups
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # Rotate labels for readability
+        theme_minimal()) # Clean theme
+
+# Convert Dietary Habits to numeric using factor:
+student_depression_df$'Dietary Habits' <- as.numeric(factor(student_depression_df$'Dietary Habits', levels = c("Unhealthy", "Moderate", "Healthy")))
+
+# Convert Sleep Duration to numeric using factor:
+student_depression_df$'Sleep Duration' <- as.numeric(factor(student_depression_df$'Sleep Duration', levels = c("'Less than 5 hours'", "'5-6 hours'", "'7-8 hours'", "'More than 8 hours'")))
+
+# Summarizing the dataset AGAIN into a brief description which would summarize the key characteristics of the features / columns / covariates' distribution:
+summary(student_depression_df)
+```
+Most students appear to sleep less than 5 hours, with roughly equal proportions of students belonging to the other 3 categories. When stratifying by depression, an interesting pattern emerges - an overwhelming majority of students with less than 5 hours of sleep on average are depressed, while the proportion of depressed students decreases as sleep duration increases.
+
+
+```{r}
+# Checking for the number of unique values for each feature in the dataset:
+unique_values <- sapply(student_depression_df, function(x) length(unique(x)))
+# Display the number of unique values for each feature:
+print(unique_values)
+```
+
+# Handling Missing Values:
+```{r}
+# Check for missing values in the dataset:
+missing_values <- sapply(student_depression_df, function(x) sum(is.na(x)))
+# Display the number of missing values for each feature:
+print(missing_values)
+
+# Get Proportion of missing values per feature:
+missing_values_proportion <- sapply(student_depression_df, function(x) sum(is.na(x)) / nrow(student_depression_df))
+# Display the proportion of missing values for each feature:
+print(missing_values_proportion)
+```
+Very low proportions! Almost none! Indicating we don't have to seriously deal with missing values issues & their consequences.
+
+
+# EDA - Key Covariates & Outcome:
+### Histograms of academic pressure & depression outcome:
+```{r}
+# Plot histograms of Academic Pressure & Outcome - Depression status:
+# Academic Pressure Distribution:
+ggplot(student_depression_df, aes(x = `Academic Pressure`)) +
+  geom_histogram(binwidth = 1, fill = "orange", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Academic Pressure", x = "Academic Pressure", y = "Frequency")
+
+# Outcome Distribution - Depression Status:
+ggplot(student_depression_df, aes(x = `Depression`)) +
+  geom_histogram(binwidth = 1, fill = "gray", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Outcome - Depression", x = "Depression (0 = No, 1 = Yes)", y = "Frequency")
+```
+From the 2 distributions, we can see that most students in the dataset are depressed, and that as a 1-5 discrete variable, academic pressure peaks at moderate (3) and extreme (1,5) values.
+
+### Distributions (histograms & barplots) of key covariates:
+```{r}
+# Set up a 2×2 plotting area
+par(mfrow = c(2, 2),
+    mar   = c(4, 4, 2, 1),
+    oma   = c(0, 0, 2, 0))
+
+# Histogram of Age
+hist(student_depression_df$Age,breaks = 20, main   = "Age Distribution", xlab   = "Age", col = "blue")
+
+# Histogram of CGPA
+hist(student_depression_df$CGPA, breaks = 20, main   = "CGPA Distribution", xlab   = "CGPA", col    = "red")
+
+# Bar plot of Degree
+deg_tbl <- table(student_depression_df$Degree)
+barplot(deg_tbl, main = "Counts by Degree", xlab = "Degree", ylab = "Count", col = "yellow", las  = 2) # Rotate x-axis labels for better readability
+
+# Bar plot of Study Satisfaction
+sat_tbl <- table(student_depression_df$`Study Satisfaction`)
+sat_tbl <- sat_tbl[names(sat_tbl) != "0"]
+barplot(sat_tbl, main = "Counts by Study Satisfaction", xlab = "Satisfaction Level", ylab = "Count", col = "green")
+
+# Super‐title for all aforementioned 4 plots
+mtext("Distributions of key student features", outer = TRUE, cex = 1.2)
+```
+
+```{r}
+# SAME CODE, WITH ADDITIONAL TRIMMING & PREPROCESSING OF THE DATA
+# Set up a 2×2 plotting area
+par(mfrow = c(2, 2),
+    mar   = c(4, 4, 2, 1),
+    oma   = c(0, 0, 2, 0))
+
+# Histogram of Age - trimmed to focus on the main bulk of students (i.e. 35 and below)
+hist(student_depression_df$Age[student_depression_df$Age <= 35],breaks = 20, main   = "Age Distribution", xlab   = "Age", col = "steelblue")
+
+# Histogram of CGPA - trimmed to focus on the main bulk of students (i.e. 5 and above)
+hist(student_depression_df$CGPA[student_depression_df$CGPA >= 5], breaks = 20, main   = "CGPA Distribution", xlab   = "CGPA", col    = "darkred")
+
+# Bar plot of Degree
+deg_tbl <- table(student_depression_df$Degree)
+barplot(deg_tbl, main = "Counts by Degree", xlab = "Degree", ylab = "Count", col = "lightgrey", axes = TRUE, names.arg = NULL) # completely remove labels & rotate x-axis labels for better readability
+
+# Bar plot of Study Satisfaction
+sat_tbl <- table(student_depression_df$`Study Satisfaction`)
+sat_tbl <- sat_tbl[names(sat_tbl) != "0"]
+barplot(sat_tbl, main = "Counts by Study Satisfaction", xlab = "Satisfaction Level", ylab = "Count", col = "lightgreen")
+
+# Super‐title for all aforementioned 4 plots
+mtext("Distributions of key student features", outer = TRUE, cex = 1.2)
+```
+We can observe an overwhelming majority of students belonging to "Class 12" in the Degree field, indicating that most students in the dataset receive high school education. Age is right-skewed, suggesting a young population - potentially including recent high school graduates. CGPA spans the full 5-10 range with moderate spread. Extremely low values (e.g., 5) are less common, while scores from 7 and above are relatively frequent. Study Satisfaction is fairly balanced across the 1-5 scale, though level 4 is somewhat more frequent, and level 5 slightly less common.
+
+
+```{r}
+# Histograms of other key covariates:
+# Distribution of Family History of Mental Illness:
+ggplot(student_depression_df, aes(x = `Family History of Mental Illness`)) +
+  geom_histogram(binwidth = 1, fill = "purple", color = "black", alpha = 0.7) +
+  labs(title = "Counts by Family History of Mental Illness", x = "Family History of Mental Illness (0 = No, 1 = Yes)", y = "Frequency")
+
+# Distribution of Gender:
+ggplot(student_depression_df, aes(x = factor(`Gender`))) +
+  geom_bar(binwidth = 1, fill = "pink", color = "black", alpha = 0.7) +
+  labs(title = "Counts by Gender", x = "Gender", y = "Frequency")
+
+# Distribution of Work/Study Hours:
+ggplot(student_depression_df, aes(x = `Work / Study Hours`)) +
+  geom_histogram(binwidth = 1, fill = "brown", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Work/Study Hours", x = "Work/Study Hours", y = "Frequency")
+
+# Distribution of Financial Stress:
+ggplot(student_depression_df, aes(x = `Financial Stress`)) +
+  geom_histogram(binwidth = 0.5, fill = "orange", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Financial Stress", x = "Financial Stress", y = "Frequency")
+```
+Here we can observe a roughly equal proportion of students with / without family history of mental illness, as well as a slight male majority, a tendency to work more by students and a tendency to report higher financial stress.
+
+
+### Definition of a new treatment variable - Academic Pressure Indicator:
+```{r}
+# We shall encode a new treatment variable - Indicator for Academic Pressure > threshold, where threshold would be computed as the one which divides the students to two equal groups:
+threshold <- quantile(student_depression_df$`Academic Pressure`, 0.5, na.rm = TRUE)
+student_depression_df$`High Academic Pressure` <- ifelse(student_depression_df$`Academic Pressure` > threshold, 1, 0)
+print(threshold)
+
+# Print the first few rows to verify the new variable:
+head(student_depression_df[, c("Academic Pressure", "High Academic Pressure")])
+
+ggplot(student_depression_df, aes(x = `High Academic Pressure`)) +
+  geom_histogram(binwidth = 1, fill = "red", color = "black", alpha = 0.7) +
+  labs(title = "Treatment Distribution (High Academic Pressure > 3 (0 = No, 1 = Yes))", x = "Treatment = Above Median (3) Academic Pressure Indicator", y = "Frequency")
+
+# Bar plot of Academic Pressure Indicator
+ggplot(student_depression_df, aes(x = `Academic Pressure`, fill = factor(`Academic Pressure` > 3))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Academic Pressure (Treatment)", x = "Academic Pressure", y = "Frequency", fill = "Academic Pressure Group") +   #  fixes legend title
+  scale_fill_manual(values = c("red", "blue"), labels = c("Low Pressure (<= 3)", "High Pressure (> 3)")) + # Custom colors for pressure groups
+  theme_minimal() + # Clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # rotate labels for readability
+```
+As we'd expect, the groups don't appear equal in size. This signifies that the median of a discrete random variable such as Academic Pressure isn't capable of dividing the treatment into 2 equally sized groups, and the most balanced division turned out to be "Academic Pressure" > threshold = 4 <-> Treatment = 1, and vice versa.
+
+#### EDA upon the New Treatment Variable:
+```{r}
+# Further Inspection of the new treatment variable
+# Depression Distribution (counts), Stratified by Treatment (Academic Pressure Indicator = High Academic Pressure)
+ggplot(student_depression_df, aes(x = factor(Depression), fill = factor(`High Academic Pressure`))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Depression counts by Academic Pressure group (Treatment)", x = "Depression Status (0 = No, 1 = Yes)", y = "Frequency", fill = "Academic Pressure Group") +   #  fixes legend title
+  scale_fill_manual(values = c("red", "blue"), labels = c("Low Pressure (<= 3)", "High Pressure (> 3)")) + # Custom colors for pressure groups
+  theme_minimal() + # clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # rotate labels for readability
+
+# Depression Distribution (proportions), Stratified by Treatment (Academic Pressure Indicator = High Academic Pressure)
+ggplot(student_depression_df, aes(x = factor(Depression), fill = factor(`High Academic Pressure`))) +
+  geom_bar(position = "fill", color = "black", alpha = 0.7) +   # "fill" = scale bars to proportions
+  scale_y_continuous(labels = scales::percent_format()) +       # y-axis as percentages
+  labs(title = "Depression proportions by Academic Pressure group (Treatment)", x = "Depression Status (0 = No, 1 = Yes)", y = "Student Proportion", fill = "Academic Pressure Group") +   # fixes legend title
+  scale_fill_manual(values = c("red", "blue"), labels = c("Low Pressure (<= 3)", "High Pressure (> 3)")) + 
+  theme_minimal() + # clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))   # rotate labels for readability
+
+
+# NOW - LOOKING AT THE STRATIFIED DISTRIBUTION, FROM THE EXACT OPPOSITE PERSPECTIVE! 
+# Treatment Distribution (counts), Stratified by Depression Outcome
+ggplot(student_depression_df, aes(x = factor(`High Academic Pressure`), fill = factor(Depression))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Treatment counts by Depression status", x = "Academic Pressure Group (0 = Low, 1 = High)", y = "Frequency", fill = "Depression Status") +   # fixes legend title
+  scale_fill_manual(values = c("grey80", "steelblue"), labels = c("No Depression (0)", "Depressed (1)")) + # custom colors for outcome groups
+  theme_minimal() + # clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # rotate labels for readability
+
+
+# Treatment Distribution (proportions), Stratified by Depression Outcome
+ggplot(student_depression_df, aes(x = factor(`High Academic Pressure`), fill = factor(Depression))) +
+  geom_bar(position = "fill", color = "black", alpha = 0.7) +   # "fill" = scale bars to proportions
+  scale_y_continuous(labels = scales::percent_format()) +       # y-axis as percentages
+  labs(title = "Treatment proportions by Depression status", x = "Academic Pressure Group (0 = Low, 1 = High)", y = "Student Proportion", fill = "Depression Status") +   # fixes legend title
+  scale_fill_manual(values = c("grey80", "steelblue"), labels = c("No Depression (0)", "Depressed (1)")) + 
+  theme_minimal() + # clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))   # rotate labels for readability
+```
+We can also notice that depression is more commonly observed among the treated (high pressure group), and vice versa for the untreated (lower pressure group).
+We can also notice that among the depressed students, most are treated (belong to the high pressure group), and vice versa for the non depressed students - most belong to the untreated (lower pressure group).
+
+
+#### Contingency Table + Naive Odds Ratio (OR)
+```{r}
+# Depression Status vs. High Academic Pressure - Contingency Table:
+contingency_table <- with(student_depression_df, table(`Pressure > 3` = `Academic Pressure` > 3, Depression))
+print(contingency_table)
+
+# Extract cells
+a <- contingency_table["TRUE",  "1"]  # High pressure, Depression
+b <- contingency_table["TRUE",  "0"]  # High pressure, No depression
+c <- contingency_table["FALSE", "1"]  # Low pressure, Depression
+d <- contingency_table["FALSE", "0"]  # Low pressure, No depression
+
+# Compute odds ratio - High vs. Low Academic Pressure
+OR <- (a / b) / (c / d)
+
+cat(sprintf("Naive Odds Ratio (High vs. Low Academic Pressure) = %.3f\n", OR))
+```
+Comparing treatment groups (high vs. low academic pressure), the resulting odds ratio turns out to be alarmingly large around 6, indicating larger depression odds among high pressure cohort.
+
+
+## Boxplot of key covariates, grouped by outcome:
+```{r}
+# Boxplot of CGPA by Depression status:
+ggplot(student_depression_df, aes(x = factor(Depression), y = CGPA)) +
+  geom_boxplot(fill = "red", color = "black", alpha = 0.7) +
+  labs(title = "CGPA by Depression Status", x = "Depression Status (0 = No, 1 = Yes)", y = "CGPA")
+
+# Boxplot of Academic Pressure by Depression Status:
+ggplot(student_depression_df, aes(x = factor(Depression), y = `Academic Pressure`)) +
+  geom_boxplot(fill = "orange", color = "black", alpha = 0.7) +
+  labs(title = "Academic Pressure by Depression Status", x = "Depression Status (0 = No, 1 = Yes)", y = "Academic Pressure")
+
+# Boxplot for Financial Stress by Depression Status:
+ggplot(student_depression_df, aes(x = factor(Depression), y = `Financial Stress`)) +
+  geom_boxplot(fill = "yellow", color = "black", alpha = 0.7) +
+  labs(title = "Financial Stress by Depression Status", x = "Depression Status (0 = No, 1 = Yes)", y = "Financial Stress")
+
+# Boxplot of Study Hours by Depression status:
+ggplot(student_depression_df, aes(x = factor(Depression), y = `Work / Study Hours`)) +
+  geom_boxplot(fill = "brown", color = "black", alpha = 0.7) +
+  labs(title = "Work/Study Hours by Depression Status", x = "Depression Status (0 = No, 1 = Yes)", y = "Work/Study Hours")
+
+# Boxplot of Study Satisfaction by Depression status:
+ggplot(student_depression_df, aes(x = factor(Depression), y = `Study Satisfaction`)) +
+  geom_boxplot(fill = "green", color = "black", alpha = 0.7) +
+  labs(title = "Study Satisfaction by Depression Status", x = "Depression Status (0 = No, 1 = Yes)", y = "Study Satisfaction")
+
+# Bar plot of Degree, stratified by Depression status
+ggplot(student_depression_df, aes(x = `Degree`, fill = factor(Depression))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Degree Distribution (counts) by Depression Status", x = "Degree", y = "Frequency", fill = "Depression Status") +
+  scale_fill_manual(values = c("grey80", "steelblue"), labels = c("No", "Yes")) +  # Custom colors for depression groups
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # Rotate labels for readability
+        theme_minimal()) # Clean theme
+
+# Bar plot of Suicidal Thoughts, stratified by Depression status
+ggplot(student_depression_df, aes(x = `Suicidal Thoughts`, fill = factor(`Depression`))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Suicidal Thoughts Distribution (counts) by Depression Status", x = "Suicidal Thoughts (0 = No, 1 = Yes)", y = "Frequency", fill = "Depression Status") +   #  fixes legend title
+  scale_fill_manual(values = c("grey80", "steelblue"), labels = c("No", "Yes")) + # Custom colors for depression groups
+  theme_minimal() + # Clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate labels for readability
+
+# Bar plot of Gender, stratified by Depression status
+ggplot(student_depression_df, aes(x = factor(`Gender`), fill = factor(`Depression`))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Gender Distribution (counts) by Depression Status", x = "Gender", y = "Frequency", fill = "Depression Status") +   #  fixes legend title
+  scale_fill_manual(values = c("grey80", "steelblue"), labels = c("No", "Yes")) + # Custom colors for depression groups
+  theme_minimal() + # Clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate labels for readability
+```
+We can note that among both males & females, most are depressed. When looking at suicidal thoughts - an overwhelming majority is depressed among those with suicidal thoughts, and trend is reversed in the other group. CGPA appears slightly lower among depressed students, while academic pressure is notably higher. Financial stress is also elevated among the depressed cohort. Study hours are much higher for depressed students, while study satisfaction is largely unchanged across depression groups.
+
+
+## Distributions (barplots) of key covariates, grouped by treatment indicator (high academic pressure):
+```{r}
+# Bar plot of Gender, stratified by Treatment (High Academic Pressure)
+ggplot(student_depression_df, aes(x = factor(`Gender`), fill = factor(`High Academic Pressure`))) +
+  geom_bar(position = "dodge", color = "black", alpha = 0.7) +
+  labs(title = "Gender Distribution (counts) by Treatment (High Academic Pressure)", x = "Gender", y = "Frequency", fill = "High Academic Pressure") +   #  fixes legend title
+  scale_fill_manual(values = c("red", "blue"), labels = c("Low Pressure (<= 3)", "High Pressure (> 3)")) + # custom colors for pressure groups
+  theme_minimal() + # Clean theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate labels for readability
+```
+We can note that among both males & females, most belong to the control group (lower academic pressure).
+
+
+```{r}
+# Set up a 2×2 plotting area
+par(mfrow = c(2, 2),
+    mar   = c(4, 3, 2, 0),
+    oma   = c(0, 0, 2, 0))
+
+# Histogram of Age - trimmed to focus on students below 35
+# Stratified by High Academic Pressure: red = Low Pressure (<=3), blue = High Pressure (>3)
+age_subset <- subset(student_depression_df, Age <= 35)
+age_cut <- cut(age_subset$Age, breaks = seq(18, 35, by = 1), right = FALSE) 
+age_tbl <- table(age_cut, age_subset$`High Academic Pressure`)
+bp <- barplot(t(age_tbl), beside = TRUE, col = c("red", "blue"), main = "Age Distribution by Treatment",xlab = "Age", ylab = "Count", xaxt = "n")
+axis(1, at = bp[seq(1, length(bp), by = 2)], labels = 18:34, las = 2)
+# legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Histogram of CGPA - trimmed to focus on students with CGPA >= 5
+# Stratified by `High Academic Pressure`: red = Low Pressure (<=3), blue = High Pressure (>3)
+cgpa_subset <- subset(student_depression_df, CGPA >= 5)
+cgpa_cut <- cut(cgpa_subset$CGPA, breaks = seq(5, 10, by = 0.5), right = FALSE)
+cgpa_tbl <- table(cgpa_cut, cgpa_subset$`High Academic Pressure`)
+cgpa_subset <- subset(student_depression_df, CGPA >= 5)
+barplot(t(cgpa_tbl), beside = TRUE, col = c("red", "blue"), main = "CGPA Distribution by Treatment", xlab = "CGPA", ylab = "Count", las = 2)
+# legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Bar plot of Degree - stratified counts by `High Academic Pressure`
+deg_tbl <- table(student_depression_df$Degree, student_depression_df$`High Academic Pressure`)
+barplot(t(deg_tbl), beside = TRUE, col = c("red", "blue"), main = "Degree by Treatment", xlab = "Degree", ylab = "Count", las = 2)
+legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Bar plot of Study Satisfaction - stratified counts by `High Academic Pressure`
+sat_tbl <- table(student_depression_df$`Study Satisfaction`, student_depression_df$`High Academic Pressure`)
+sat_tbl <- sat_tbl[rownames(sat_tbl) != "0", ]   # drop "0" category if present
+barplot(t(sat_tbl), beside = TRUE, col = c("red", "blue"), main = "Study Satisfaction by Treatment", xlab = "Study Satisfaction", ylab = "Count", las = 2)
+# legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Super‐title for all four stratified plots
+mtext("Distributions of key student features stratified by High Academic Pressure", outer = TRUE, cex = 1.2)
+```
+We can oberve that across almost all groups (except for the youngest 18-aged students), the control group dominates over treatment group. The gap between the 2 groups fluctuates in an inconsistent manner across the X strata.
+
+
+To facilitate positivity checks on our set of confounders, some had to be preprocessed due to their continuous nature.
+## Preprocessing - Transforming Key Covariates:
+```{r}
+# Make sure the bucketing variables exist
+student_depression_df <- student_depression_df %>%
+  # Study-Satisfaction (ordered factor 1–5)
+  mutate(`Study Satisfaction` = factor(`Study Satisfaction`, levels = sort(unique(`Study Satisfaction`)), ordered = TRUE))
+
+# Define `Study_Field` as a coarser categorization of `Degree`
+student_depression_df <- student_depression_df %>%
+  mutate(
+    Degree_raw = trimws(Degree),
+    Study_Field = case_when(
+      Degree_raw %in% c("'Class 12'") ~ "Class 12 (pre-college)",
+      Degree_raw %in% c("B.Tech","BE","M.Tech","ME", "BSc","BCA", "MSc","MCA") ~ "STEM & Technology",
+      Degree_raw %in% c("B.Com","BBA","MBA","M.Com") ~ "Business & Economics",
+      Degree_raw %in% c("BA","MA","B.Ed","LLB","M.Ed","LLM") ~ "Arts, Humanities & Social Sci.",
+      Degree_raw %in% c("MBBS","B.Pharm","M.Pharm","MD") ~ "Health & Medicine",
+     .default =  "Other / Not Classified"
+    ))
+
+# Define Age & CGPA quartiles - 4 groups each, to facilitate future stratification (positivity checks) on previously continuous features
+student_depression_df <- student_depression_df %>%
+  mutate(
+    Age_Q  = factor(ntile(Age,  4), labels = c("Q1","Q2","Q3","Q4")),
+    CGPA_Q = factor(ntile(CGPA, 4), labels = c("Q1","Q2","Q3","Q4"))
+  )
+```
+
+
+#### EDA over processed variables
+```{r}
+# Helper function for plotting proportions by quartile
+prop_plot <- function(df, xvar, xlabel) {
+  ggplot(df, aes(x = {{ xvar }}, fill = factor(Depression))) +
+    geom_bar(position = "fill", colour = "black", alpha = 0.85) +
+    facet_wrap(~ `High Academic Pressure`) +
+    scale_y_continuous(labels = percent_format()) +
+    scale_x_discrete(labels = c("1", "2", "3", "4")) +
+    scale_fill_manual(name   = "Depression Status",
+                      values = c("0" = "grey80", "1" = "steelblue"),
+                      labels = c("No", "Yes")) +
+    labs(x = xlabel, y = "Proportion of students") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+p_age  <- prop_plot(student_depression_df, Age_Q,  "Age quartile")
+p_cgpa <- prop_plot(student_depression_df, CGPA_Q, "CGPA quartile")
+
+p_age + p_cgpa + plot_annotation(
+  title = "Proportion depressed in each quartile, split by treatment (pressure group)",
+  theme = theme(plot.title = element_text(hjust = .5, face = "bold"))
+)
+```
+Several patterns emerge from the plots:
+Age: Within both treatment groups, depression prevalence decreases with age, with younger students report depression more frequently. Moreover, within every age quartile, the proportion of depressed students is consistently higher among students under high academic pressure than in the corresponding low-pressure group. 
+CGPA:The proportion of students experiencing depression remains relatively stable across CGPA quartiles within each pressure group. However, within each CGPA group, those under high academic pressure consistently show a higher proportion of depression than students in the same CGPA group under low pressure.
+
+
+```{r}
+# Set up a wider 3×2 plotting area
+par(mfrow = c(3, 2),
+    mar   = c(4, 3, 2, 0),
+    oma   = c(0, 0, 2, 0))
+
+# Histogram of Age Quartile, stratified by High Academic Pressure: red = Low Pressure (<=3), blue = High Pressure (>3)
+ageq_tbl <- table(student_depression_df$Age_Q, student_depression_df$`High Academic Pressure`)
+bp <- barplot(t(ageq_tbl), beside = TRUE, col = c("red", "blue"), main = "Age Quartile Distribution by Treatment",xlab = "Age", ylab = "Count", las = 2)
+# legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Histogram of CGPA Quartile, stratified by `High Academic Pressure`: red = Low Pressure (<=3), blue = High Pressure (>3)
+cgpaq_tbl <- table(student_depression_df$CGPA_Q, student_depression_df$`High Academic Pressure`)
+barplot(t(cgpaq_tbl), beside = TRUE, col = c("red", "blue"), main = "CGPA Quartile Distribution by Treatment", xlab = "CGPA", ylab = "Count", las = 2)
+# legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Bar plot of Study Field - The only processed variable whose new distribution we're interested in (Age & CGPA Quartile barplot would show uniform counts across all 4 quartiles)
+barplot(t(table(student_depression_df$Study_Field)), col = "yellow", main = "Counts by Field of Study", xlab = "Field of Study", ylab = "Count", las = 2)
+
+# Bar plot of Processed Degree - Study Field - stratified counts by `High Academic Pressure
+field_tbl <- table(student_depression_df$Study_Field, student_depression_df$`High Academic Pressure`)
+barplot(t(field_tbl), beside = TRUE, col = c("red", "blue"), main = "Field of Study by Treatment", xlab = "Field of Study", ylab = "Count", las = 2)
+legend("topright", legend = c("Control", "Treated"), fill = c("red", "blue"), cex = 0.75)
+
+# Super‐title for all four stratified plots
+mtext("Distributions of key processed features, most - stratified by Treatment (Pressure)", outer = TRUE, cex = 1.2)
+```
+We can note that most students belong to the lower academic pressure group, across all age and CGPA quartiles. The treated / untreated ratio seems to be preserved across all 4 CGPA & age quartiles. The most common field of study is STEM & Technology, followed by pre-college education and then Business & Economics, Arts, Humanities & Social Sciences.
+
+
+# Positivity Violation Checks - on the X Set of Confounders (CGPA_Quartile, Age_Quartile, Study_Field, Study_Satisfaction):
+```{r}
+# Ensuring Study
+student_depression_df <- student_depression_df %>% filter(`Study Satisfaction` %in% 1:5)
+
+# Count students in every 5-way combination & spread to two columns
+combo_counts <- student_depression_df %>%
+  count(Study_Field, CGPA_Q, Age_Q, `Study Satisfaction`, `High Academic Pressure`) %>%          # make the 5-D table
+  pivot_wider(names_from = `High Academic Pressure`, values_from = n, values_fill = 0L) %>%   # two columns
+  arrange(Study_Field, CGPA_Q, Age_Q, `Study Satisfaction`)                        # tidy ordering
+
+# In total, we should theoretically get: 6 (Study_Field) * 4 _CGPA_Q) * 4 (Age_Q) * 5 (Study Satisfaction) = 480 possible confounder combinations
+# Check for any zero counts (i.e. potential positivity violations) in either treatment group in any of the possible 480 combinations of the X confounder set
+positivity_violation_summary <- combo_counts %>%
+  summarise(
+    Boxes_with_zero_low   = sum(`0` == 0),   # strata where no controls
+    Boxes_with_zero_high  = sum(`1` == 0),   # strata where no treated
+    Boxes_with_either_zero = sum(`0` == 0 | `1` == 0),
+    Total_Boxes           = n()
+  )
+
+print(positivity_violation_summary)
+```
+13 observed positivity violations in total are not perfect 0, but it’s more than adequate, especially considering that each feature can take on multiple values. We also got 477 and not 480 total boxes, suggesting that very few (3 out of 480) confounder combinations do not exist at all in the data.
+
+
+```{r}
+# Create a stacked bar plot of the frequencies of study fields by age
+ggplot(data = student_depression_df, aes(x = Age, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "Age", y = "Frequency", title = "Frequencies of Age by Study Fields") +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.8, 0.8),  # Position the legend inside the plot area
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+
+# Create a stacked bar plot of the frequencies of study fields by age - trimmed to focus on the main bulk of students (i.e. below 35)
+ggplot(data = student_depression_df[student_depression_df$Age <= 35,], aes(x = Age, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "Age", y = "Frequency", title = "Frequencies of Age - Trimmed (<=35) by Study Fields") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position the legend below the plot
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+
+# Create a stacked bar plot of the frequencies of study fields by age quartile
+ggplot(data = student_depression_df, aes(x = Age_Q, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "Age Quartile", y = "Frequency", title = "Frequencies of Age Quartile by Study Fields") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position the legend below the plot
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+
+
+# Create a stacked bar plot of the frequencies of study fields by CGPA
+ggplot(data = student_depression_df, aes(x = CGPA, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "CGPA", y = "Frequency", title = "Frequencies of CGPA by Study Fields") +
+  geom_histogram(binwidth = 0.5, color = "black") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position the legend below the plot
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+
+# Create a stacked bar plot of the frequencies of study fields by CGPA - trimmed to focus on the main bulk of students (i.e. 5 and above)
+ggplot(data = student_depression_df[student_depression_df$CGPA >= 5, ], aes(x = CGPA, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "CGPA", y = "Frequency", title = "Frequencies of CGPA - Trimmed (>=5) by Study Fields") +
+  geom_histogram(binwidth = 0.1, color = "black") + # 0.1 binwidth for more precise inspection
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position the legend below the plot
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+
+# Create a stacked bar plot of the frequencies of study fields by CGPA quartile
+ggplot(data = student_depression_df, aes(x = CGPA_Q, fill = Study_Field)) +
+  geom_bar() +  # Stacked bars by default
+  labs(x = "CGPA Quartile", y = "Frequency", title = "Frequencies of CGPA Quartile by Study Fields") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",  # Position the legend below the plot
+    plot.background = element_rect(fill = "lightgrey")  # Correctly set the plot background color
+  ) +
+  scale_fill_brewer(palette = "Set1")  # Optional: Use a color palette for better visualization
+```
+Looking at the age distribution (original, trimmed / quartile version), stratified by field of study, a notable pattern emerges - students aged 20 and below overwhelmingly come from "class 12" (i.e. high schoold education) study field, which may suggest certain covariate (age-study field) are hard to find from the data due to the fact students aged 20 and below comprise of a different population than the rest due to the substantial differences in study fields compared to the rest. This means that certain combinations of X set (confounders) may barely exist in the data, which may open a pandora's box of potential positivity violations. Since the table above showed very minor combinations of X strata with positivity violations (15-20 out of 480), we assumed that certain student combinations (i.e. aged < 20 & come from STEM) may exist in the data but in very low proportions, which may indicate RANDOM positivity violations. This did not appear to be by design.
+
+
+# ATE Estimation
+```{r}
+# Define alpha (= 0.05), so that 1 - alpha = Confidence level for future CIs
+alpha <- 0.05
+# Setting B = 300 for future nonparametric bootstrap (using said number - B = 300, of bootstrap samples)
+B <- 300 
+z_alpha <- qnorm(1 - alpha/2)   # = 1.96 for 95% CI
+
+# Omitting outlier populations - age > 35, for future modeling
+student_depression_df <- student_depression_df[student_depression_df$Age <= 35, ]
+
+# Omitting outlier populations - CGPA < 5, for future modeling
+student_depression_df <- student_depression_df[student_depression_df$CGPA >= 5, ]
+```
+
+
+## Naive Method
+We first computed the naive ATE, relatively easy and straightforward to estimate directly from the data due to the fact no models need to be fit for the task of estimation.
+```{r}
+# Initialize empty results dataframe, containing key metrics based on the estimation method, ATE, SE, and 95% CI. 
+# Will be updated as we estimate the ATE in different ways.
+results_df <- data.frame(
+  Method = character(),
+  ATE    = numeric(),
+  SE     = numeric(),
+  CI_L   = numeric(),
+  CI_U   = numeric(),
+  stringsAsFactors = FALSE
+)
+
+m <- with(student_depression_df, tapply(Depression, `High Academic Pressure`, mean, na.rm = TRUE)) # Naively computing the mean outcome given treatment.
+
+mean_y_0_low_naive <- m["0"]
+mean_y_1_high_naive <- m["1"]
+naive_ATE  <- mean_y_1_high_naive - mean_y_0_low_naive
+
+cat(sprintf("E[Y|A = 1] - Naive Estimate = %.4f,   E[Y|A = 0] - Naive Estimate = %.4f,   Naive ATE (E[Y|A = 1] - E[Y|A = 0]) = %.4f\n", mean_y_1_high_naive, mean_y_0_low_naive, naive_ATE))
+
+n1 <- sum(student_depression_df$`High Academic Pressure` == 1, na.rm = TRUE) # treated sample size
+n0 <- sum(student_depression_df$`High Academic Pressure` == 0, na.rm = TRUE) # control sample size
+
+# Variance computation - Naive ATE
+var1 <- (mean_y_1_high_naive * (1 - mean_y_1_high_naive)) / n1  # Var[Y|A = 1]
+var0 <- (mean_y_0_low_naive  * (1 - mean_y_0_low_naive))  / n0  # Var[Y|A = 0]
+
+SE_naive <- sqrt(var1 + var0)   # standard error of ATE
+CI_naive <- naive_ATE + c(-1, 1) * z_alpha * SE_naive   # 95% CI bounds
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "Naive",
+    ATE    = naive_ATE,
+    SE     = SE_naive,
+    CI_L   = CI_naive[1],
+    CI_U   = CI_naive[2]
+  )
+)
+
+cat(sprintf("SE = %.4f,   95%% CI = [%.4f, %.4f]\n", SE_naive, CI_naive[1], CI_naive[2]))
+print(results_df)
+```
+
+
+## Standardization
+Since our work's outcome (depression status) is a binary 0/1 variable, we fitted an outcome logistic regression model for Depression ~ Treatment + Various Confounder Variations, for the sake of ATE estimation using Standardization. We applied 3 models, all of them encoded study satisfaction as a continuous 1-5 variable (we assumed that any increase in study satisfaction affects E[Depression|Treatment, X, including Study Satisfaction] in a constant manner). All 3 models were fit under different covariate specifications, and included treatment (Pressure Group, as a covariate for modeling the depression outcome) and variations of our minimal confounder X set, i.e. variation of age, variation of CGPA, Study Field and Study Satisfaction.
+Model (1) was fit using the processed quartile versions of Age and CGPA, as dummy variables, assuming that a change in any of the quartiles affects the probability of experiencing depression differently. This allowed for more flexible modeling with much more parameters.
+Model (2) was fit using the original Age and CGPA variables, assuming their continuity - that any increase in any of the variables affects the depression probability in the same way.
+Model (3) has been an extension of model (2), allowing for fancier interaction terms between the treatment variable with both Age & CGPA.
+For each model, we printed the resulting ATE, as well as estimated its variance & 95% confidence interval using nonparametric bootstrap of a B = 300 samples, we also printed the point bootstrap estimate to inspect how closely aligned it is with the original ATE estimate of that model, as well as key logistic regression model metrics, using the summary() command as well. These were all saved for future comparison across models.
+#### Model Approach (1) - Fitting a Logistic Regression Outcome Model Using Quartiles of Age & CGPA
+```{r}
+# Initialize empty model diagnostics dataframe, containing key model metrics. 
+# Will be updated as we use different models for ATE estimation.
+diagnostics_df <- data.frame(
+  Model     = character(),
+  Null_Deviance      = numeric(),
+  Residual_Deviance  = numeric(),
+  AIC                = numeric(),
+  LogLik             = numeric(),
+  Pseudo_R2          = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Ensure types are right
+student_depression_df$`High Academic Pressure`  <- factor(student_depression_df$`High Academic Pressure`)
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+
+# Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the entire dataset, as well as processed age & CGPA quartiles
+outcome_model <- glm(Depression ~ `High Academic Pressure` + Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`,family = binomial, data = student_depression_df)
+
+# Predict both potential outcomes for every student, artificially setting A = 0 and A = 1
+mu1 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "1"), type = "response")   # Y_hat| A = 1
+mu0 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "0"), type = "response")    # Y_hat| A = 0
+
+# ATE = Average over the X-distribution and take the difference in means
+std_ATE <- mean(mu1) - mean(mu0)
+
+
+# Nonparametric bootstrap of B = 300 samples (for SE and CI of the Standardization ATE estimate)
+boot_vals <- replicate(B,{
+  # Bootstrap sample with replacement from the original data
+  d_b <- student_depression_df[sample(nrow(student_depression_df), replace = TRUE), ]
+  # Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the bootstraped dataset
+  outcome_model_b <- glm(Depression ~ `High Academic Pressure` + Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`, family = binomial, data = d_b)
+  # Predict both potential outcomes for every student in the bootstrapped dataset, artificially setting A = 0 and A = 1
+  mu1_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "1"), type = "response")
+  mu0_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "0"), type = "response")
+  # ATE = Average over the X-distribution and take the difference in means
+  mean(mu1_b) - mean(mu0_b)
+})
+
+# Mean ATE - Standardization across bootstrap samples, checking how close the bootstrap procedure resulted compared to the real estimate:
+mean_std_ATE_boots <- mean(boot_vals)
+
+# Standard error = SD of bootstrap estimates
+SE_std <- sd(boot_vals)
+
+# (1-alpha)% = (100%-5% = 95%) CI using quantiles (from nonparametric bootstrap)
+CI_std <- quantile(boot_vals, c(alpha/2, 1 - alpha/2))
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "Standardization (Logistic) - using Quartiles",
+    ATE    = std_ATE,
+    SE     = SE_std,
+    CI_L   = CI_std[1],
+    CI_U   = CI_std[2]
+  )
+)
+
+diagnostics_df <- rbind(
+  diagnostics_df,
+  data.frame(
+    Model     = "Outcome logistic (Standardization) - original confounders + interactions",
+    Null_Deviance      = outcome_model$null.deviance,
+    Residual_Deviance  = outcome_model$deviance,
+    AIC                = AIC(outcome_model),
+    LogLik             = as.numeric(logLik(outcome_model)),
+    Pseudo_R2          = 1 - (outcome_model$deviance / outcome_model$null.deviance)
+  )
+)
+
+summary(outcome_model)
+cat("\n")
+print(results_df)
+print(diagnostics_df)
+cat(sprintf("E[Y|A = 1] - Covariate-adjusted Estimate = %.4f,   E[Y|A = 0] - Covariate-adjusted Estimate = %.4f,   Covariate-adjusted ATE - Standardization (Outcome Model 1 - using age & CGPA quartiles) = %.4f\n", mean(mu1), mean(mu0), std_ATE))
+cat(sprintf("Mean ATE-Standardization (Outcome Model 1) (Bootstrap) = %.4f,   SE = %.4f,   95%% CI = [%.4f, %.4f]\n", mean_std_ATE_boots, SE_std, CI_std[1], CI_std[2]))
+```
+
+
+#### Model Approach (2) - Fitting a Logistic Regression Outcome Model Using Original Age & CGPA
+```{r}
+# Ensure types are right
+student_depression_df$`High Academic Pressure`  <- factor(student_depression_df$`High Academic Pressure`)
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+
+# Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the entire dataset, and original age & CGPA variables (continuous)
+outcome_model <- glm(Depression ~ `High Academic Pressure` + Study_Field + Age + CGPA + `Study Satisfaction`,family = binomial, data = student_depression_df)
+
+# Predict both potential outcomes for every student, artificially setting A = 0 and A = 1
+mu1 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "1"), type = "response")   # Y_hat| A = 1
+mu0 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "0"), type = "response")    # Y_hat| A = 0
+
+# ATE = Average over the X-distribution and take the difference in means
+std_ATE <- mean(mu1) - mean(mu0)
+
+
+# Nonparametric bootstrap of B = 300 samples (for SE and CI of the Standardization ATE estimate)
+boot_vals <- replicate(B,{
+  # Bootstrap sample with replacement from the original data
+  d_b <- student_depression_df[sample(nrow(student_depression_df), replace = TRUE), ]
+  # Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the bootstraped dataset
+  outcome_model_b <- glm(Depression ~ `High Academic Pressure` + Study_Field + Age + CGPA + `Study Satisfaction`, family = binomial, data = d_b)
+  # Predict both potential outcomes for every student in the bootstrapped dataset, artificially setting A = 0 and A = 1
+  mu1_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "1"), type = "response")
+  mu0_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "0"), type = "response")
+  # ATE = Average over the X-distribution and take the difference in means
+  mean(mu1_b) - mean(mu0_b)
+})
+
+# Mean ATE - Standardization across bootstrap samples, checking how close the bootstrap procedure resulted compared to the real estimate:
+mean_std_ATE_boots <- mean(boot_vals)
+
+# Standard error = SD of bootstrap estimates
+SE_std <- sd(boot_vals)
+
+# (1-alpha)% = (100%-5% = 95%) CI using quantiles (from nonparametric bootstrap)
+CI_std <- quantile(boot_vals, c(alpha/2, 1 - alpha/2))
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "Standardization (Logistic) - original confounders",
+    ATE    = std_ATE,
+    SE     = SE_std,
+    CI_L   = CI_std[1],
+    CI_U   = CI_std[2]
+  )
+)
+
+diagnostics_df <- rbind(
+  diagnostics_df,
+  data.frame(
+    Model     = "Outcome logistic (Standardization) - original confounders",
+    Null_Deviance      = outcome_model$null.deviance,
+    Residual_Deviance  = outcome_model$deviance,
+    AIC                = AIC(outcome_model),
+    LogLik             = as.numeric(logLik(outcome_model)),
+    Pseudo_R2          = 1 - (outcome_model$deviance / outcome_model$null.deviance)
+  )
+)
+
+summary(outcome_model)
+cat("\n")
+print(results_df)
+print(diagnostics_df)
+cat(sprintf("E[Y|A = 1] - Covariate-adjusted Estimate = %.4f,   E[Y|A = 0] - Covariate-adjusted Estimate = %.4f,   Covariate-adjusted ATE - Standardization (Outcome Model 2 - using age & CGPA) = %.4f\n", mean(mu1), mean(mu0), std_ATE))
+cat(sprintf("Mean ATE-Standardization (Outcome Model 2) (Bootstrap) = %.4f,   95%% CI = [%.4f, %.4f]\n", mean_std_ATE_boots, SE_std, CI_std[1], CI_std[2]))
+```
+
+
+#### Model Approach (3) - Fitting a Logistic Regression Outcome Model Using Original Age & CGPA + Interactions between them & treatment
+```{r}
+# Ensure types are right
+student_depression_df$`High Academic Pressure`  <- factor(student_depression_df$`High Academic Pressure`)
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+
+# Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the entire dataset, as well as original age & CGPA variables (continuous) & interactions between them & treatment
+outcome_model <- glm(Depression ~ `High Academic Pressure`*Age + `High Academic Pressure`*CGPA + Study_Field + `Study Satisfaction`,family = binomial, data = student_depression_df)
+
+# Predict both potential outcomes for every student, artificially setting A = 0 and A = 1
+mu1 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "1"), type = "response")   # Y_hat| A = 1
+mu0 <- predict(outcome_model, newdata = transform(student_depression_df, `High Academic Pressure` = "0"), type = "response")    # Y_hat| A = 0
+
+# ATE = Average over the X-distribution and take the difference in means
+std_ATE <- mean(mu1) - mean(mu0)
+
+
+# Nonparametric bootstrap of B = 300 samples (for SE and CI of the Standardization ATE estimate)
+boot_vals <- replicate(B,{
+  # Bootstrap sample with replacement from the original data
+  d_b <- student_depression_df[sample(nrow(student_depression_df), replace = TRUE), ]
+  # Fit an outcome logistic regression model  E[Y|A, X] = P(Y = 1|A, X), using the bootstraped dataset
+  outcome_model_b <- glm(Depression ~ `High Academic Pressure` + Study_Field + Age + CGPA + `Study Satisfaction`, family = binomial, data = d_b)
+  # Predict both potential outcomes for every student in the bootstrapped dataset, artificially setting A = 0 and A = 1
+  mu1_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "1"), type = "response")
+  mu0_b <- predict(outcome_model_b, newdata = transform(d_b, `High Academic Pressure` = "0"), type = "response")
+  # ATE = Average over the X-distribution and take the difference in means
+  mean(mu1_b) - mean(mu0_b)
+})
+
+# Mean ATE - Standardization across bootstrap samples, checking how close the bootstrap procedure resulted compared to the real estimate:
+mean_std_ATE_boots <- mean(boot_vals)
+
+# Standard error = SD of bootstrap estimates
+SE_std <- sd(boot_vals)
+
+# (1-alpha)% = (100%-5% = 95%) CI using quantiles (from nonparametric bootstrap)
+CI_std <- quantile(boot_vals, c(alpha/2, 1 - alpha/2))
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "Standardization (Logistic) - original confounders + interactions",
+    ATE    = std_ATE,
+    SE     = SE_std,
+    CI_L   = CI_std[1],
+    CI_U   = CI_std[2]
+  )
+)
+
+diagnostics_df <- rbind(
+  diagnostics_df,
+  data.frame(
+    Model     = "Outcome logistic (Standardization) - original confounders + interactions",
+    Null_Deviance      = outcome_model$null.deviance,
+    Residual_Deviance  = outcome_model$deviance,
+    AIC                = AIC(outcome_model),
+    LogLik             = as.numeric(logLik(outcome_model)),
+    Pseudo_R2          = 1 - (outcome_model$deviance / outcome_model$null.deviance)
+  )
+)
+
+summary(outcome_model)
+cat("\n")
+print(results_df)
+print(diagnostics_df)
+cat(sprintf("E[Y|A = 1] - Covariate-adjusted Estimate = %.4f,   E[Y|A = 0] - Covariate-adjusted Estimate = %.4f,   Covariate-adjusted ATE - Standardization (Outcome Model 3 - using original age, CGPA & interactions) = %.4f\n", mean(mu1), mean(mu0), std_ATE))
+cat(sprintf("Mean ATE-Standardization (Outcome Model 3) (Bootstrap) = %.4f,   95%% CI = [%.4f, %.4f]\n", mean_std_ATE_boots, SE_std, CI_std[1], CI_std[2]))
+```
+
+
+## Propensity Score Models
+For the sake of both positivity checks (overlap of the predicted PS distributions among both treated and untreated) and for future ATE estimation using IPTW, we fit several models for the propensity score (P(A = 1|X), i.e. the probability of treatment, given the X set of confounders). We applied 3 models, all of them encoded study satisfaction as a continuous 1-5 variable (we assumed that any increase in study satisfaction affects P(Treatment = 1|X, including Study Satisfaction) in a constant manner). We used logistic regression for fitting all 3 models, due to the binary 0/1 nature of the treatment (pressure group) in our work. All 3 were fit under different covariate specifications, and included variations of our minimal confounder X set, i.e. variation of age, variation of CGPA, Study Field and Study Satisfaction, for modeling Treatment ~ Various Confounder Variations.
+#### Model Approach (1) - Fitting a Logistic Regression PS Model Using Quartiles of Age & CGPA, as Dummy Variables
+```{r}
+# Convert Study Satisfaction to numeric for PS model fitting, we assume that a jump in study satisfaction by 1 unit has the same effect on log-odds of treatment
+student_depression_df$`Study Satisfaction` <- as.numeric(as.character(student_depression_df$`Study Satisfaction`))
+
+# Fit a propensity-score model - P(A = 1|X), considering the quartile confounders as dummy variables (as if jump by 1 quartile implies a differing effect on log-odds of treatment)
+# This modeling approach ensures more flexibility in parameters, and we have a lot of data for it!
+simple_ps_model <- glm(`High Academic Pressure` ~ Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`, family = binomial(link = "logit"), data = student_depression_df,na.action = na.exclude)
+
+# Attach the propensity scores of this simple model to the data 
+student_depression_df <- student_depression_df %>% 
+  mutate(ps_simple = simple_ps_model$fitted.values)
+
+# Thresholds for extreme PS
+low_cut <- 0.05
+high_cut <- 0.95
+
+# Visualize overlap to check for positivity, using the fitted PS model histogram
+ggplot(student_depression_df, aes(ps_simple, fill = `High Academic Pressure`)) +
+  geom_histogram(binwidth = 0.025, position = "identity",
+                 alpha = 0.65, colour = "grey50", linewidth = 0.2) +
+  geom_vline(xintercept = c(low_cut, high_cut), linetype = "dashed", linewidth = 0.6) +
+  scale_fill_manual(name   = "Treatment (Pressure Group)", values = c("0"  = "#e0b166", "1" = "#5d95c5"), labels  = c("0 (Low)", "1 (High)"), guide   = guide_legend(reverse = TRUE)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.05), limits = c(0, 1)) +
+  labs(title = "Propensity Score Distribution By Treatment (Pressure Group)", x = "Propensity Score", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.background      = element_rect(fill = "#f4f4f4", colour = NA),
+    panel.grid.major.y    = element_line(colour = "white"),
+    panel.grid.major.x    = element_blank(),
+    axis.line             = element_line(colour = "black"),
+    legend.position       = c(0.82, 0.70),
+    legend.box.background = element_rect(colour = "grey60"),
+    legend.box.margin     = margin(2, 2, 2, 2)
+  )
+
+summary(simple_ps_model)
+```
+
+
+#### Model Approach (2) - Fitting a Logistic Regression PS Model Using Original Age & CGPA
+```{r}
+# Fit another propensity-score model - P(A = 1|X), considering the original Age & CGPA continuous variables instead of their transformed quartile versions.
+truly_simple_ps_model <- glm(`High Academic Pressure` ~ Study_Field + Age + CGPA + `Study Satisfaction`, family = binomial(link = "logit"), data = student_depression_df,na.action = na.exclude)
+
+# Attach the propensity scores of this simple model to the data 
+student_depression_df <- student_depression_df %>% 
+  mutate(ps_simple_truly = truly_simple_ps_model$fitted.values)
+
+# Thresholds for extreme PS
+low_cut <- 0.05
+high_cut <- 0.95
+
+# Visualize overlap to check for positivity, using the fitted PS model histogram
+ggplot(student_depression_df, aes(ps_simple_truly, fill = `High Academic Pressure`)) +
+  geom_histogram(binwidth = 0.025, position = "identity",
+                 alpha = 0.65, colour = "grey50", linewidth = 0.2) +
+  geom_vline(xintercept = c(low_cut, high_cut), linetype = "dashed", linewidth = 0.6) +
+  scale_fill_manual(name   = "Treatment (Pressure Group)", values = c("0"  = "#e0b166", "1" = "#5d95c5"), labels  = c("0 (Low)", "1 (High)"), guide   = guide_legend(reverse = TRUE)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.05), limits = c(0, 1)) +
+  labs(title = "Propensity Score Distribution By Treatment (Pressure Group)", x = "Propensity Score", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.background      = element_rect(fill = "#f4f4f4", colour = NA),
+    panel.grid.major.y    = element_line(colour = "white"),
+    panel.grid.major.x    = element_blank(),
+    axis.line             = element_line(colour = "black"),
+    legend.position       = c(0.82, 0.70),
+    legend.box.background = element_rect(colour = "grey60"),
+    legend.box.margin     = margin(2, 2, 2, 2)
+  )
+
+summary(truly_simple_ps_model)
+```
+
+
+#### Model Approach (3) - Fitting a Logistic Regression PS Model Using Quartiles of Age & CGPA, as 1-4 Continuous Variables
+```{r}
+# Convert Age_Q and CGPA_Q to numeric 1–4
+student_depression_df$Age_Q  <- as.numeric(student_depression_df$Age_Q)
+student_depression_df$CGPA_Q <- as.numeric(student_depression_df$CGPA_Q)
+
+
+# Fit another propensity-score model - P(A = 1|X), considering the confounders as numeric (as if jump by 1 quartile / study satisf. implies the same effect on log-odds of treatment)
+# Less parameters to estimate than the previous approach!
+simple_ps_model_numeric <- glm(`High Academic Pressure` ~ Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`, family = binomial(link = "logit"), data = student_depression_df,na.action = na.exclude)
+
+# Attach the propensity scores of this simple model to the data 
+student_depression_df <- student_depression_df %>% 
+  mutate(ps_simple_numeric = simple_ps_model_numeric$fitted.values)
+
+# Thresholds for extreme PS
+low_cut <- 0.05
+high_cut <- 0.95
+
+# Visualize overlap to check for positivity, using the fitted PS model histogram
+ggplot(student_depression_df, aes(ps_simple_numeric, fill = `High Academic Pressure`)) +
+  geom_histogram(binwidth = 0.025, position = "identity",
+                 alpha = 0.65, colour = "grey50", linewidth = 0.2) +
+  geom_vline(xintercept = c(low_cut, high_cut), linetype = "dashed", linewidth = 0.6) +
+  scale_fill_manual(name   = "Treatment (Pressure Group)", values = c("0"  = "#e0b166", "1" = "#5d95c5"), labels  = c("0 (Low)", "1 (High)"), guide   = guide_legend(reverse = TRUE)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.05), limits = c(0, 1)) +
+  labs(title = "Propensity Score Distribution By Treatment (Pressure Group)", x = "Propensity Score", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.background      = element_rect(fill = "#f4f4f4", colour = NA),
+    panel.grid.major.y    = element_line(colour = "white"),
+    panel.grid.major.x    = element_blank(),
+    axis.line             = element_line(colour = "black"),
+    legend.position       = c(0.82, 0.70),
+    legend.box.background = element_rect(colour = "grey60"),
+    legend.box.margin     = margin(2, 2, 2, 2)
+  )
+
+summary(simple_ps_model_numeric)
+```
+Across all three propensity score specifications (Model 1: quartile dummies; Model 2: continuous age/CGPA; Model 3: numeric quartiles), we found that the positivity assumption is well satisfied: both treated (high pressure) and control (low pressure) students are represented across the full range of propensity scores, and no extreme weights occur. This is crucial since IPTW variance grows drastically with extreme weights; in our data, the weights are concentrated around 0.4–0.5, which helps reduce estimator variance.
+Both Model 1 (quartile dummies) and Model 2 (continuous age/CGPA) yield statistically significant coefficients (p < 0.05) for key predictors such as Study Satisfaction, age/CGPA, and several Study Field dummies. They also show lower AIC and deviance than Model 3 (numeric quartiles). Model 1 surpasses Model 2 slightly in fit, at the cost of more parameters. Given the large sample (25K+ students), this flexibility is not problematic and may better capture non-linearities in age and CGPA.
+Overall, the three models provide consistent results, reinforcing robustness. We focus on Models 1 & 2 in reporting, as model 1 combine strong fit with the most flexible treatment of confounders, while still maintaining overlap and stable weights. Model 2 produced desirable results too, but it is less flexible but assumes nothing w.r.t how age & CGPA should be model apart from their continuity.
+
+
+## IPTW using Stabilized Weights (SW)
+For each model shown below, we printed the resulting ATE, as well as estimated its variance & 95% confidence interval using nonparametric bootstrap of a B = 300 samples, we also printed the point bootstrap estimate to inspect how closely aligned it is with the original ATE estimate of that model, as well as key logistic regression model metrics, using the summary() command as well. These were all saved for future comparison across models.
+We also decided to ignore the 3rd propensity score model since the previous 2 already provided satisfactory results w.r.t positivity as well as their moderate PS scores (which are crucial for variance reduction in the IPTW method) and we mainly wanted to compare the ATE IPTW results across the models which either treated CGPA & age as continuous, or as quartiles.
+We also used the Stabilised Weights (SW) method seen in class, which employs a weighting scheme with a twist - multiplying by the probability of being in the treatment / control group, to reduce even further the variance of the ATE IPTW estimate.
+### Model Approach (1) - Using the Propensity Score Model from before with Original Age & CGPA Variables
+```{r}
+# Ensure types are right
+student_depression_df$`High Academic Pressure`  <- as.numeric(as.character(student_depression_df$`High Academic Pressure`)) # keep as 0/1 numeric
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+
+# Fit a propensity-score model - P(A = 1|X), considering the quartile confounders as dummy variables (as if jump by 1 quartile implies a differing effect on log-odds of treatment)
+# This modeling approach ensures more flexibility in parameters, and we have a lot of data for it!
+# If need reminder, remove the # below:
+# simple_ps_model <- glm(`High Academic Pressure` ~ Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`, family = binomial(link = "logit"), data = student_depression_df,na.action = na.exclude)
+
+# Attach the propensity scores of this simple model to the data 
+# If need reminder, remove the # below:
+# student_depression_df <- student_depression_df %>% 
+  # mutate(ps_simple = simple_ps_model$fitted.values)
+
+# Compute marginal treatment probabilities
+p1 <- mean(student_depression_df$`High Academic Pressure` == 1, na.rm = TRUE)
+p0 <- 1 - p1
+
+# Compute Stabilized IPTW weights
+student_depression_df$w_stab <- ifelse(student_depression_df$`High Academic Pressure` == 1, p1 / student_depression_df$ps_simple, p0 / (1 - student_depression_df$ps_simple))
+
+# IPTW (stabilized) ATE = weighted risk difference
+mu1_iptw <- with(student_depression_df, (sum(w_stab * `High Academic Pressure` * Depression) / sum(w_stab * `High Academic Pressure`)))
+mu0_iptw <- with(student_depression_df, (sum(w_stab * (1 - `High Academic Pressure`) * Depression) / sum(w_stab * (1 - `High Academic Pressure`))))
+IPTW_ATE <- mu1_iptw - mu0_iptw
+
+# Nonparametric bootstrap of B = 300 samples (for SE and CI of the IPTW ATE estimate)
+boot_vals <- replicate(B,{
+  # Bootstrap sample with replacement from the original data
+  d_b <- student_depression_df[sample(nrow(student_depression_df), replace = TRUE), ]
+  # Fit an Propensity Score logistic regression model - P(A = 1|X), using the bootstraped dataset
+  simple_ps_b <- glm(`High Academic Pressure` ~ Study_Field + Age_Q + CGPA_Q + `Study Satisfaction`, family = binomial(link = "logit"), data = d_b)
+  d_b$ps <- simple_ps_b$fitted.values
+  # Compute stabilized weights
+  p1_b <- mean(d_b$`High Academic Pressure` == 1, na.rm = TRUE)
+  p0_b <- 1 - p1_b
+  d_b$w_stab <- ifelse(d_b$`High Academic Pressure` == 1, p1_b/d_b$ps, p0_b/(1-d_b$ps))
+  # Compute ATE - IPTW-SW
+  mu1_b_iptw <- with(d_b, (sum(w_stab * `High Academic Pressure` * Depression) / sum(w_stab * `High Academic Pressure`)))
+  mu0_b_iptw <- with(d_b, (sum(w_stab * (1 - `High Academic Pressure`) * Depression) / sum(w_stab * (1 - `High Academic Pressure`))))
+  mu1_b_iptw - mu0_b_iptw
+})
+
+# Mean ATE - IPTW-SW across bootstrap samples, checking how close the bootstrap procedure resulted compared to the real estimate:
+mean_IPTW_ATE_boots <- mean(boot_vals)
+
+# Standard error = SD of bootstrap estimates
+SE_IPTW <- sd(boot_vals)
+
+# (1-alpha)% = (100%-5% = 95%) (1-alpha)% = (100%-5% = 95%) CI using quantiles (from nonparametric bootstrap)
+CI_IPTW <- quantile(boot_vals, c(alpha/2, 1 - alpha/2))
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "IPTW (Stabilized Weights) - using quartiles",
+    ATE    = IPTW_ATE,
+    SE     = SE_IPTW,
+    CI_L   = CI_IPTW[1],
+    CI_U   = CI_IPTW[2]
+  )
+)
+
+# Save diagnostics for PS model
+diagnostics_df <- rbind(
+  diagnostics_df,
+  data.frame(
+    Model     = "Propensity Score logistic (IPTW) - using quartiles",
+    Null_Deviance      = simple_ps_model$null.deviance,
+    Residual_Deviance  = simple_ps_model$deviance,
+    AIC                = AIC(simple_ps_model),
+    LogLik             = as.numeric(logLik(simple_ps_model)),
+    Pseudo_R2          = 1 - (simple_ps_model$deviance / simple_ps_model$null.deviance)
+  )
+)
+
+print(results_df)
+print(diagnostics_df)
+cat(sprintf("E[Y|A = 1] - IPTW-SW = %.4f,   E[Y|A = 0] - IPTW-SW = %.4f,   IPTW (stabilized weights) ATE - (based on PS model 1 - using age & CGPA quartiles) = %.4f\n", mu1_iptw, mu0_iptw, IPTW_ATE))
+cat(sprintf("Mean ATE-IPTW-SW (PS Model 1) (Bootstrap) = %.4f,   SE = %.4f,   95%% CI = [%.4f, %.4f]\n", mean_IPTW_ATE_boots, SE_IPTW, CI_IPTW[1], CI_IPTW[2]))
+```
+
+
+### Model Approach (2) - Using the Propensity Score Model from before with Original Age & CGPA Variables
+```{r}
+# Ensure types are right
+student_depression_df$`High Academic Pressure`  <- as.numeric(as.character(student_depression_df$`High Academic Pressure`)) # keep as 0/1 numeric
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+
+# Fit another propensity-score model - P(A = 1|X), considering the original Age & CGPA continuous variables instead of their transformed quartile versions.
+# If need reminder, remove the # below:
+# truly_simple_ps_model <- glm(`High Academic Pressure` ~ Study_Field + Age + CGPA + `Study Satisfaction`, family = binomial(link = "logit"), data = student_depression_df,na.action = na.exclude)
+
+# Attach the propensity scores of this simple model to the data 
+# If need reminder, remove the # below:
+# student_depression_df <- student_depression_df %>% 
+  # mutate(ps_simple_truly = truly_simple_ps_model$fitted.values)
+
+# Compute marginal treatment probabilities
+p1 <- mean(student_depression_df$`High Academic Pressure` == 1, na.rm = TRUE)
+p0 <- 1 - p1
+
+# Compute Stabilized IPTW weights
+student_depression_df$w_stab <- ifelse(student_depression_df$`High Academic Pressure` == 1, p1 / student_depression_df$ps_simple_truly, p0 / (1 - student_depression_df$ps_simple_truly))
+
+# IPTW (stabilized) ATE = weighted risk difference
+mu1_iptw <- with(student_depression_df, (sum(w_stab * `High Academic Pressure` * Depression) / sum(w_stab * `High Academic Pressure`)))
+mu0_iptw <- with(student_depression_df, (sum(w_stab * (1 - `High Academic Pressure`) * Depression) / sum(w_stab * (1 - `High Academic Pressure`))))
+IPTW_ATE <- mu1_iptw - mu0_iptw
+
+# Nonparametric bootstrap of B = 300 samples (for SE and CI of the IPTW ATE estimate)
+boot_vals <- replicate(B,{
+  # Bootstrap sample with replacement from the original data
+  d_b <- student_depression_df[sample(nrow(student_depression_df), replace = TRUE), ]
+  # Fit an Propensity Score logistic regression model - P(A = 1|X), using the bootstraped dataset
+  truly_simple_ps_b <- glm(`High Academic Pressure` ~ Study_Field + Age + CGPA + `Study Satisfaction`, family = binomial(link = "logit"), data = d_b)
+  d_b$ps <- truly_simple_ps_b$fitted.values
+  # Compute stabilized weights
+  p1_b <- mean(d_b$`High Academic Pressure` == 1, na.rm = TRUE)
+  p0_b <- 1 - p1_b
+  d_b$w_stab <- ifelse(d_b$`High Academic Pressure` == 1, p1_b/d_b$ps, p0_b/(1-d_b$ps))
+  # Compute ATE - IPTW-SW
+  mu1_b_iptw <- with(d_b, (sum(w_stab * `High Academic Pressure` * Depression) / sum(w_stab * `High Academic Pressure`)))
+  mu0_b_iptw <- with(d_b, (sum(w_stab * (1 - `High Academic Pressure`) * Depression) / sum(w_stab * (1 - `High Academic Pressure`))))
+  mu1_b_iptw - mu0_b_iptw
+})
+
+# Mean ATE - IPTW-SW across bootstrap samples, checking how close the bootstrap procedure resulted compared to the real estimate:
+mean_IPTW_ATE_boots <- mean(boot_vals)
+
+# Standard error = SD of bootstrap estimates
+SE_IPTW <- sd(boot_vals)
+
+# (1-alpha)% = (100%-5% = 95%) (1-alpha)% = (100%-5% = 95%) CI using quantiles (from nonparametric bootstrap)
+CI_IPTW <- quantile(boot_vals, c(alpha/2, 1 - alpha/2))
+
+
+# Saving the results
+results_df <- rbind(
+  results_df,
+  data.frame(
+    Method = "IPTW (Stabilized Weights) - original confounders",
+    ATE    = IPTW_ATE,
+    SE     = SE_IPTW,
+    CI_L   = CI_IPTW[1],
+    CI_U   = CI_IPTW[2]
+  )
+)
+
+# Save diagnostics for PS model
+diagnostics_df <- rbind(
+  diagnostics_df,
+  data.frame(
+    Model     = "Propensity Score logistic (IPTW) - original variables",
+    Null_Deviance      = truly_simple_ps_model$null.deviance,
+    Residual_Deviance  = truly_simple_ps_model$deviance,
+    AIC                = AIC(truly_simple_ps_model),
+    LogLik             = as.numeric(logLik(truly_simple_ps_model)),
+    Pseudo_R2          = 1 - (truly_simple_ps_model$deviance / truly_simple_ps_model$null.deviance)
+  )
+)
+
+print(results_df)
+print(diagnostics_df)
+cat(sprintf("E[Y|A = 1] - IPTW-SW = %.4f,   E[Y|A = 0] - IPTW-SW = %.4f,   IPTW (stabilized weights) ATE - (based on PS model 2 - using age & CGPA) = %.4f\n", mu1_iptw, mu0_iptw, IPTW_ATE))
+cat(sprintf("Mean ATE-IPTW-SW (PS Model 2) (Bootstrap) = %.4f,   SE = %.4f,   95%% CI = [%.4f, %.4f]\n", mean_IPTW_ATE_boots, SE_IPTW, CI_IPTW[1], CI_IPTW[2]))
+```
+From the final table we can see that all ATE estimates, across all methods, fell in the 0.36–0.39 range. The naïve estimator was the largest at 0.39, while both Standardization (logistic regression under different covariate specifications) and IPTW (with various propensity score specifications) produced very similar values around 0.36. Specifically, Standardization estimates ranged 0.364–0.365, and IPTW estimates 0.362–0.363. This reflects two alternative adjustment strategies: Standardization averages predicted outcomes across the covariate distribution, while IPTW reweights observations based on their propensity scores to approximate a randomized trial.
+
+All methods yielded very low standard errors (~0.005), leading to narrow 95% confidence intervals (lower bounds around 0.35, upper bounds <=0.40). Importantly, all intervals excluded 0, providing consistent evidence that high academic pressure has a statistically significant positive effect on the probability of depression. Substantively, the results indicate that academic pressure increases the risk of depression by roughly 0.35–0.40, robust to the choice of estimation method and model specification.
+
+
+# CATE Estimation:
+To estimate the CATE, we applied 2 metalearner approaches - S-Learner and T-Learner. Throughout the CATE estimation, for each meta-learner, we used 2 different base learners (simple, parametric Logistic Regression model, and flexible, nonparametric Random Forest model using 500 trees and the ranger() library), and under 2 different effect modifier specifications - (a) using the original, continuous age & CGPA variables & (b) using the processed quartile versions of age & CGPA (i.e. 2 (metalearners) * 2 (base-learners per meta learner) * 2 (effect modifier specifications per model) = 8 models for CATE Estimation.
+```{r}
+# Define alpha (= 0.05), so that 1 - alpha = Confidence level for future CIs
+alpha <- 0.05
+z_alpha <- qnorm(1 - alpha/2)   # = 1.96 for 95% CI
+
+# Ensure correct types
+student_depression_df$`High Academic Pressure` <- as.numeric(as.character(student_depression_df$`High Academic Pressure`))
+student_depression_df$Depression <- as.numeric(as.character(student_depression_df$Depression))    # 0/1 outcome
+student_depression_df$`Study Satisfaction` <- as.numeric(as.character(student_depression_df$`Study Satisfaction`))
+
+# Rename for future modeling
+df <- student_depression_df %>%
+  rename(Work_Study_Hours = `Work / Study Hours`)  # explicitly rename work / study hours column
+df <- df %>%
+  rename_with(~ gsub(" ", "_", .x))  # replace spaces with underscores
+df$Study_Field <- factor(df$Study_Field)
+```
+
+
+```{r}
+# Adding interactions to the model (between treatment & each effect modifier)
+add_interactions <- function(df, treatment, modifiers) {
+  for (var in modifiers) {
+    new_name <- paste0(treatment, "_X_", var)
+    
+    if (is.factor(df[[var]]) || is.character(df[[var]])) {
+      df[[new_name]] <- interaction(df[[treatment]], df[[var]])
+    } else {
+      df[[new_name]] <- df[[treatment]] * df[[var]]
+    }
+  }
+  return(df)
+}
+```
+
+
+## Meta-Learner Approach (1) — S Learner using 2 base learners (Logistic Regression & Random Forest) and various effect modifier specifications and interations
+We fit a single model for the outcome, using both treatment and effect modifiers as predictors. We then predict potential outcomes (E[Y|A, Z]) for each individual under both treatment levels (A=0 and A=1), while effect modifiers Z remain fixed, and estimate the CATE as the difference in these predicted outcomes. In this meta-learner approach, we added interactions between the treatment and every effect modifier, to make our S-Learner more flexible and better able to capture heterogeneity in treatment effects.
+```{r}
+# Fit a S-Learner model using the specified base learner (logistic regression or random forest) & effect modifiers. Return model's CATE predictions.
+s_learner <- function(df, base = c("glm", "rf"), effect_modifiers) {
+  base <- match.arg(base)
+  
+  # Build formula from effect modifiers
+  rhs <- paste(effect_modifiers, collapse = " + ")
+  formula <- as.formula(paste("`Depression` ~ High_Academic_Pressure * (", rhs, ")"))
+  # Create treatment × effect modifier interaction features
+  df_rf <- add_interactions(df, "High_Academic_Pressure", effect_modifiers)
+
+  # Specifying the base-models - Logistic Regression / Random Forest
+  if (base == "glm") {
+    # Fit a Logistic Regression S-learner base model, using interactions with the modifiers & treatment too
+    model <- glm(formula, data = df, family = binomial)
+    print(summary(model)) # printing if desired, user - you, can type "#" before if finding the summary redundant information.
+    
+    # Predict potential outcomes for each student, artificially setting A = 0 and A = 1 across all students
+    mu1 <- predict(model, newdata = transform(df, High_Academic_Pressure = 1), type = "response")
+    mu0 <- predict(model, newdata = transform(df, High_Academic_Pressure = 0), type = "response")
+    
+  } else {
+    # Build formula
+    rhs <- paste(c(effect_modifiers, paste0("High_Academic_Pressure_X_", effect_modifiers)), collapse = " + ")
+    formula_rf <- as.formula(paste("as.factor(Depression) ~", rhs))
+    # Fit a Random Forest S-learner base model, using interactions with the modifiers & treatment too
+    model <- ranger(formula_rf, data = df_rf, num.trees = 500, seed = 123, probability = TRUE, min.node.size = 20) # 500 trees!
+    
+    # Predict potential outcomes for each student, artificially setting A = 0 and A = 1 across all students
+    df1 <- add_interactions(transform(df, High_Academic_Pressure = 1), "High_Academic_Pressure", effect_modifiers)
+    df0 <- add_interactions(transform(df, High_Academic_Pressure = 0), "High_Academic_Pressure", effect_modifiers)
+    p1 <- predict(model, data = df1)$predictions
+    p0 <- predict(model, data = df0)$predictions
+    
+    # columns are class probs for 0 and 1; take prob of class "1"
+    mu0 <- as.numeric(p0[, "1"])
+    mu1 <- as.numeric(p1[, "1"])
+  }
+  cat(sprintf("Estimated E[Y|A = 1] = %.4f,   Estimated E[Y|A = 0] = %.4f\n", mean(mu1, na.rm = TRUE), mean(mu0, na.rm = TRUE)))
+  cat("\n")
+  # Predicted CATEs
+  tau_i <- mu1 - mu0
+  df$tau <- tau_i
+  return(df)
+}
+```
+
+
+```{r}
+# Summarize the results - mean CATE (ATE), SD, SE, and 95% CI + saving them into a results dataframe, using this function 
+summarize <- function(cate, label, alpha = 0.05) {
+  cate <- as.numeric(cate)   # <- force plain numeric vector
+  # Mean CATE, SD, and (1-alpha)% = (100%-5% = 95%) CI of estimates
+  mean_CATE <- mean(cate, na.rm = TRUE)
+  SD <- sd(cate, na.rm = TRUE) 
+  SE <- SD / sqrt(sum(!is.na(cate)))
+  z_alpha <- qnorm(1 - alpha/2)
+  CI <- mean_CATE + c(-1,1)*z_alpha* SE
+
+  # Saving the results
+  results_df <- data.frame(
+    Method    = label,
+    Mean_CATE = mean_CATE,
+    SD        = SD,
+    SE        = SD / sqrt(sum(!is.na(cate))),
+    CI_L      = CI[1],
+    CI_U      = CI[2]
+  )
+  return(results_df)
+}
+```
+
+
+Run both S-learners, across both effect modifier specifications (quartiles & continuous)
+```{r}
+# Effect modifiers with which we’ll model the CATE - using processed quartile versions of age & CGPA:
+effect_modifiers <- c("Age_Q", "CGPA_Q", "Study_Field", "Study_Satisfaction", "Sleep_Duration", "Family_History_of_Mental_Illness", "Financial_Stress", "Work_Study_Hours")
+
+# Fit the S-Learner for CATE estimation using the specified effect modifiers, using the 2 base learners - logistic regression (simple & parametric) & Random Forest (flexible & nonparametric)
+cate_s_logistic_q <- s_learner(df, base = "glm", effect_modifiers)
+summarize(cate_s_logistic_q$tau, "S-Learner (Logistic, Quartiles)")
+cate_s_rf_q  <- s_learner(df, base = "rf",  effect_modifiers)
+summarize(cate_s_rf_q$tau, "S-Learner (Random Forest, Quartiles)")
+
+
+# Effect modifiers with which we’ll model the CATE - using original continuous age & CGPA:
+effect_modifiers <- c("Age", "CGPA", "Study_Field", "Study_Satisfaction", "Sleep_Duration", "Family_History_of_Mental_Illness", "Financial_Stress", "Work_Study_Hours")
+
+# Fit the S-Learner for CATE estimation using the specified effect modifiers (with interactions with treatment), using the 2 base learners - logistic regression (simple & parametric) & Random Forest (flexible & nonparametric)
+cate_s_logistic <- s_learner(df, base = "glm", effect_modifiers)
+summarize(cate_s_logistic$tau, "S-Learner (Logistic)")
+
+cate_s_rf  <- s_learner(df, base = "rf",  effect_modifiers)
+summarize(cate_s_rf$tau, "S-Learner (Random Forest)")
+```
+
+
+## Meta-Learner Approach (2) — T-Learner using 2 base learners (Logistic Regression & Random Forest) and various effect modifier specifications
+We fit a 2 models for the outcome, setting treatment either A = 1 or A = 0 in each, using both treatment and effect modifiers as predictors. We then predict potential outcomes (E[Y|A, Z]) for each individual under both treatment levels (A=0 and A=1, i.e. we use both fitted models for predictions), while effect modifiers Z remain fixed, and estimate the CATE as the difference in these predicted outcomes.
+```{r}
+# Fit a T-Learner model using the specified base learner (logistic regression or random forest) & effect modifiers. Return model's CATE predictions.
+t_learner <- function(df, base = c("glm", "rf"), effect_modifiers) {
+  base <- match.arg(base)
+
+  # Artificially setting A = 0 and A = 1 across all students, in new datasets
+  d0 <- df[df$High_Academic_Pressure == 0, , drop = FALSE]
+  d1 <- df[df$High_Academic_Pressure == 1, , drop = FALSE]
+
+  # Build formula from effect modifiers
+  rhs <- paste(effect_modifiers, collapse = " + ")
+  formula <- as.formula(paste("Depression ~", rhs))
+  formula_rf  <- as.formula(paste("as.factor(Depression) ~", rhs))
+  
+  # Specifying the base-models - Logistic Regression / Random Forest
+  if (base == "glm") {
+    model_0 <- glm(formula, data = d0, family = binomial)
+    model_1 <- glm(formula, data = d1, family = binomial)
+    print(summary(model_0)) # printing if desired, user - you, can type "#" before if finding the summary redundant information.
+    print(summary(model_1)) # printing if desired, user - you, can type "#" before if finding the summary redundant information.
+    
+    mu0 <- as.numeric(predict(model_0, newdata = df, type = "response"))
+    mu1 <- as.numeric(predict(model_1, newdata = df, type = "response"))
+    
+  } else {
+    # ranger: Random Forest, suited for classification with class probabilities
+    # Fit random forests on each treatment group
+    model_0 <- ranger(formula_rf, data = d0, probability = TRUE, num.trees = 500, min.node.size = 20, seed = 123)
+    model_1 <- ranger(formula_rf, data = d1, probability = TRUE, num.trees = 500, min.node.size = 20, seed = 123)
+
+    p0 <- predict(model_0, data = df)$predictions
+    p1 <- predict(model_1, data = df)$predictions
+    # columns are class probs for 0 and 1; take prob of class "1"
+    mu0 <- as.numeric(p0[, "1"])
+    mu1 <- as.numeric(p1[, "1"])
+  }
+  cat(sprintf("Estimated E[Y|A = 1] = %.4f,   Estimated E[Y|A = 0] = %.4f\n", mean(mu1, na.rm = TRUE), mean(mu0, na.rm = TRUE)))
+  # Predicted CATEs
+  tau_i <- mu1 - mu0
+  df$tau <- tau_i
+  return(df)
+}
+```
+
+
+Run both T-learners, across both effect modifier specifications (quartiles & continuous)
+```{r}
+# Effect modifiers with which we’ll model the CATE - using processed quartile versions of age & CGPA:
+effect_modifiers <- c("Age_Q", "CGPA_Q", "Study_Field", "Study_Satisfaction", "Sleep_Duration", "Family_History_of_Mental_Illness", "Financial_Stress", "Work_Study_Hours")
+
+# Fit the T-Learner for CATE estimation using the specified effect modifiers, using the 2 base learners - logistic regression (simple & parametric) & Random Forest (flexible & nonparametric)
+cate_t_logistic_q <- t_learner(df, base = "glm", effect_modifiers)
+summarize(cate_t_logistic_q$tau, "T-Learner (Logistic, Quartiles)")
+
+cate_t_rf_q  <- t_learner(df, base = "rf",  effect_modifiers)
+summarize(cate_t_rf_q$tau, "T-Learner (Random Forest, Quartiles)")
+
+
+# Effect modifiers with which we’ll model the CATE - using original continuous age & CGPA:
+effect_modifiers <- c("Age", "CGPA", "Study_Field", "Study_Satisfaction", "Sleep_Duration", "Family_History_of_Mental_Illness", "Financial_Stress", "Work_Study_Hours")
+
+# Fit the T-Learner for CATE estimation using the specified effect modifiers, using the 2 base learners - logistic regression (simple & parametric) & Random Forest (flexible & nonparametric)
+cate_t_logistic <- t_learner(df, base = "glm", effect_modifiers)
+summarize(cate_t_logistic$tau, "T-Learner (Logistic)")
+
+cate_t_rf  <- t_learner(df, base = "rf",  effect_modifiers)
+summarize(cate_t_rf$tau, "T-Learner (Random Forest)")
+```
+
+
+```{r}
+# Combine CATE predictions from the 4 models (continuous spec)
+cate_all <- data.frame(
+  cate_s_logistic   = cate_s_logistic$tau,
+  cate_s_rf         = cate_s_rf$tau,
+  cate_t_logistic   = cate_t_logistic$tau,
+  cate_t_rf         = cate_t_rf$tau,
+  Gender            = df$Gender,
+  Study_Field       = df$Study_Field,
+  Study_Satisfaction= df$Study_Satisfaction,
+  Sleep_Duration    = df$Sleep_Duration,
+  Family_History    = df$Family_History_of_Mental_Illness,
+  Financial_Stress  = df$Financial_Stress
+) %>%
+  pivot_longer(cols = starts_with("cate_"),
+               names_to = "Model",
+               values_to = "CATE") %>%
+  mutate(Model = recode(Model,
+    cate_s_logistic = "S-Learner (Logistic)",
+    cate_s_rf       = "S-Learner (Random Forest)",
+    cate_t_logistic = "T-Learner (Logistic)",
+    cate_t_rf       = "T-Learner (Random Forest)"
+  ))
+
+
+
+# Do the same for quartile-based specification
+cate_all_q <- data.frame(
+  cate_s_logistic_q   = cate_s_logistic_q$tau,
+  cate_s_rf_q         = cate_s_rf_q$tau,
+  cate_t_logistic_q   = cate_t_logistic_q$tau,
+  cate_t_rf_q         = cate_t_rf_q$tau,
+  Gender            = df$Gender,
+  Study_Field       = df$Study_Field,
+  Study_Satisfaction= df$Study_Satisfaction,
+  Sleep_Duration    = df$Sleep_Duration,
+  Family_History    = df$Family_History_of_Mental_Illness,
+  Financial_Stress  = df$Financial_Stress
+) %>%
+  pivot_longer(cols = starts_with("cate_"),
+               names_to = "Model",
+               values_to = "CATE") %>%
+  mutate(Model = recode(Model,
+    cate_s_logistic_q = "S-Learner (Logistic, Quartiles)",
+    cate_s_rf_q       = "S-Learner (Random Forest, Quartiles)",
+    cate_t_logistic_q = "T-Learner (Logistic, Quartiles)",
+    cate_t_rf_q       = "T-Learner (Random Forest, Quartiles)"
+  ))
+
+# Specify CATE effect modifiers specifications
+cate_all$Spec <- "Continuous"
+cate_all_q$Spec <- "Quartile"
+
+# Merge CATEs from both specifications, base learners & metalearners
+cate_all_both <- bind_rows(cate_all, cate_all_q)
+
+
+# Redefine CATE dataframe for quartile-based specification only
+cate_all_q <- data.frame(
+  cate_s_logistic_q   = cate_s_logistic_q$tau,
+  cate_s_rf_q         = cate_s_rf_q$tau,
+  cate_t_logistic_q   = cate_t_logistic_q$tau,
+  cate_t_rf_q         = cate_t_rf_q$tau,
+  Gender            = df$Gender,
+  Study_Field       = df$Study_Field,
+  Study_Satisfaction= df$Study_Satisfaction,
+  Sleep_Duration    = df$Sleep_Duration,
+  Family_History    = df$Family_History_of_Mental_Illness,
+  Financial_Stress  = df$Financial_Stress,
+  Age_Q             = df$Age_Q,
+  CGPA_Q            = df$CGPA_Q
+) %>%
+  pivot_longer(cols = starts_with("cate_"),
+               names_to = "Model",
+               values_to = "CATE") %>%
+  mutate(Model = recode(Model,
+    cate_s_logistic_q = "S-Learner (Logistic, Quartiles)",
+    cate_s_rf_q       = "S-Learner (Random Forest, Quartiles)",
+    cate_t_logistic_q = "T-Learner (Logistic, Quartiles)",
+    cate_t_rf_q       = "T-Learner (Random Forest, Quartiles)"
+  ))
+```
+
+
+```{r}
+# Colors for models
+model_colors <- c(
+  "S-Learner (Logistic)"            = "#e0b166",
+  "S-Learner (Random Forest)"       = "#5d95c5",
+  "T-Learner (Logistic)"            = "#77a378",
+  "T-Learner (Random Forest)"       = "#c25c5c",
+  "S-Learner (Logistic, Quartiles)"            = "#e0b166",
+  "S-Learner (Random Forest, Quartiles)"       = "#5d95c5",
+  "T-Learner (Logistic, Quartiles)"            = "#77a378",
+  "T-Learner (Random Forest, Quartiles)"       = "#c25c5c"
+)
+```
+
+
+#### Plotting Helper Function - CATE Distributions
+```{r}
+plot_compare <- function(data, learners, title) {
+  ggplot(data %>% filter(Model %in% learners),
+         aes(x = CATE, fill = Model)) +
+    geom_histogram(aes(y = ..density..), binwidth = 0.01, position = "identity", alpha = 0.6,
+                   colour = "grey50", linewidth = 0.2) +
+    scale_fill_manual(values = model_colors) +
+    labs(title = title, x = "CATE (τᵢ)", y = "Density") +
+    theme_minimal(base_size = 12) +
+    theme(panel.background = element_rect(fill = "#f4f4f4", colour = NA),
+          panel.grid.major.y = element_line(colour = "white"),
+          panel.grid.major.x = element_blank(),
+          axis.line = element_line(colour = "black"),
+          legend.position = c(0.22, 0.88),
+          legend.background = element_rect(fill = "white", colour = "grey60"),
+          legend.title = element_blank(),
+          legend.key.size = unit(0.5, "cm"),
+          legend.text = element_text(size = 9))
+}
+```
+
+
+```{r}
+# Compare only S-learners (continuous age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic)", "S-Learner (Random Forest)"), title = "CATE Distribution - S-Learners (Continuous Age & CGPA)")
+# Compare only S-learners (quartile age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic, Quartiles)", "S-Learner (Random Forest, Quartiles)"), title = "CATE Distribution - S-Learners (Quartile Age & CGPA)")
+
+# Compare only T-learners (continuous age & CGPA)
+plot_compare(cate_all_both, learners = c("T-Learner (Logistic)", "T-Learner (Random Forest)"), title = "CATE Distribution - T-Learners (Continuous Age & CGPA)")
+# Compare only T-learners (quartile age & CGPA)
+plot_compare(cate_all_both, learners = c("T-Learner (Logistic, Quartiles)", "T-Learner (Random Forest, Quartiles)"), title = "CATE Distribution - T-Learners (Quartile Age & CGPA)")
+
+
+# Compare ALL learners - both S & T-Learners (continuous age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic)", "S-Learner (Random Forest)", "T-Learner (Logistic)", "T-Learner (Random Forest)"), title = "CATE Distribution by Model & Learner Variant (Continuous Age & CGPA)")
+
+# Compare ALL learners - both S & T-Learners (quartile age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic, Quartiles)", "S-Learner (Random Forest, Quartiles)", "T-Learner (Logistic, Quartiles)", "T-Learner (Random Forest, Quartiles)"), title = "CATE Distribution by Model & Learner Variant (Quartile Age & CGPA)")
+
+
+# Compare only Logistic Regression base learners (continuous age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic)", "T-Learner (Logistic)"), title = "CATE Distribution - Logistic Regression Based (Continuous Age & CGPA)")
+# Compare only Logistic Regression base learners (quartile age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Logistic, Quartiles)", "T-Learner (Logistic, Quartiles)"), title = "CATE Distribution - Logistic Regression Based (Quartile Age & CGPA)")
+
+# Compare only Random Forest base learners (continuous age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Random Forest)", "T-Learner (Random Forest)"), title = "CATE Distribution - Random Forest Based (Continuous Age & CGPA)")
+# Compare only Random Forest base learners (quartile age & CGPA)
+plot_compare(cate_all_both, learners = c("S-Learner (Random Forest, Quartiles)", "T-Learner (Random Forest, Quartiles)"), title = "CATE Distribution - Random Forest Based (Quartile Age & CGPA)")
+```
+
+#### Helper functions - plotting & stratifying the CATE distribution by key effect modifiers:
+```{r}
+# Summarize the results - stratified version of summarize()
+# For each stratum (level of the specified variable), compute mean CATE, SD, SE, and 95% CI
+# Uses the existing summarize() logic, but grouped by Model × Stratum
+summarize_stratified <- function(cate_data, strat_var, alpha = 0.05) {
+  z_alpha <- qnorm(1 - alpha/2)
+  cate_data %>%
+    group_by(Model, .data[[strat_var]]) %>%
+    summarise(
+      Mean_CATE = mean(CATE, na.rm = TRUE),
+      SD        = sd(CATE, na.rm = TRUE),
+      SE        = SD / sqrt(sum(!is.na(CATE))),
+      CI_L      = Mean_CATE - z_alpha * SE,
+      CI_U      = Mean_CATE + z_alpha * SE,
+      Median = median(CATE, na.rm = TRUE),
+      Min    = min(CATE, na.rm = TRUE),
+      Max    = max(CATE, na.rm = TRUE),
+      .groups   = "drop"
+    ) %>%
+    rename(Stratum = !!strat_var)
+}
+```
+
+
+```{r}
+# Plot stratified mean CATE estimates by chosen variable
+# Each stratum is shown on the x-axis, mean CATE on the y-axis
+# Error bars indicate 95% CI from summarize()
+# Colors correspond to Model, consistent with model_colors defined earlier
+plot_cate_stratified <- function(cate_data, strat_var, title) {
+  stats <- summarize_stratified(cate_data, strat_var)
+  
+  ggplot(stats, aes(x = Stratum, y = Mean_CATE, fill = Model)) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = CI_L, ymax = CI_U),
+                  position = position_dodge(width = 0.8),
+                  width = 0.2, alpha = 0.7) +
+    scale_fill_manual(values = model_colors) +
+    labs(title = title,
+         x = strat_var,
+         y = "Mean CATE (τᵢ)") +
+    theme_minimal(base_size = 13) +
+    theme(
+      panel.background = element_rect(fill = "#f4f4f4", colour = NA),
+      axis.line = element_line(colour = "black"),
+      panel.grid.major.y = element_line(colour = "white"),
+      panel.grid.major.x = element_blank(),
+      # Legend tweaks
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 9),
+      legend.key.size = unit(0.5, "cm"),
+      # Axis label tweaks
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9)  # rotate labels
+    ) +
+    guides(fill = guide_legend(nrow = 2, byrow = TRUE))  # legend in 2 rows
+}
+```
+
+
+```{r}
+# Plot stratified CATE boxplots by chosen variable
+# Each stratum is shown on the x-axis, CATE boxplot on the y-axis
+# Colors correspond to Model, consistent with model_colors defined earlier
+boxplot_cate_stratified <- function(cate_data, strat_var, title) {
+  ggplot(cate_data, aes(x = as.factor(.data[[strat_var]]), 
+                        y = CATE, 
+                        fill = Model)) +
+    geom_boxplot(position = position_dodge(width = 0.8), width = 0.6,
+                 outlier.size = 0.8, alpha = 0.9) +
+    scale_fill_manual(values = model_colors) +
+    labs(title = title,
+         x = strat_var,
+         y = "Predicted CATE (τᵢ)") +
+    theme_minimal(base_size = 13) +
+    theme(
+      panel.background = element_rect(fill = "#f4f4f4", colour = NA),
+      axis.line = element_line(colour = "black"),
+      panel.grid.major.y = element_line(colour = "white"),
+      panel.grid.major.x = element_blank(),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 9),
+      legend.key.size = unit(0.5, "cm"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+    ) +
+    guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+}
+```
+
+
+```{r}
+# Stratify CATE distributions by selected example variables
+# Age quartiles (numeric, discretized into Q1–Q4)
+plot_cate_stratified(cate_all_q, "Age_Q", "Mean CATE by Age Quartile")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Age_Q", "CATE Boxplots by Age Quartile")
+
+# Print summary stats for Age_Q
+print(summarize_stratified(cate_all_q, "Age_Q"))
+```
+
+
+```{r}
+# CGPA quartiles (numeric, discretized into Q1–Q4)
+plot_cate_stratified(cate_all_q, "CGPA_Q", "Mean CATE by CGPA Quartile")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "CGPA_Q", "CATE Boxplots by CGPA Quartile")
+
+# Print summary stats for CGPA_Q
+print(summarize_stratified(cate_all_q, "CGPA_Q"))
+```
+
+
+```{r}
+# Gender (Quartile models)
+plot_cate_stratified(cate_all_q, "Gender", "Mean CATE by Gender (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Gender", "CATE Boxplots by Gender (Quartile-based models)")
+
+# Print summary stats for Gender (Quartile models)
+print(summarize_stratified(cate_all_q, "Gender"))
+
+# Gender
+plot_cate_stratified(cate_all, "Gender", "Mean CATE by Gender")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Gender", "CATE Boxplots by Gender")
+
+# Print summary stats for Gender
+print(summarize_stratified(cate_all, "Gender"))
+```
+
+
+```{r}
+# Study field (Quartile models)
+plot_cate_stratified(cate_all_q, "Study_Field", "Mean CATE by Study Field (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Study_Field", "CATE Boxplots by Study Field (Quartile-based models)")
+
+# Print summary stats for Study field (Quartile models)
+print(summarize_stratified(cate_all_q, "Study_Field"))
+
+# Study field
+plot_cate_stratified(cate_all, "Study_Field", "Mean CATE by Study Field")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Study_Field", "CATE Boxplots by Study Field")
+
+# Print summary stats for Study field
+print(summarize_stratified(cate_all, "Study_Field"))
+```
+
+
+```{r}
+# Family History of Mental Illness (Quartile models)
+plot_cate_stratified(cate_all_q, "Family_History", "Mean CATE by Family History of Mental Illness (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Family_History", "CATE Boxplots by Family History of Mental Illness (Quartile-based models)")
+
+# Print summary stats for Family History of Mental Illness (Quartile models)
+print(summarize_stratified(cate_all_q, "Family_History"))
+
+# Family History of Mental Illness
+plot_cate_stratified(cate_all, "Family_History", "Mean CATE by Family History of Mental Illness")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Family_History", "CATE Boxplots by Family History of Mental Illness")
+
+# Print summary stats for Family History of Mental Illness
+print(summarize_stratified(cate_all, "Family_History"))
+```
+
+
+```{r}
+# Study satisfaction (Quartile models)
+plot_cate_stratified(cate_all_q, "Study_Satisfaction", "Mean CATE by Study Satisfaction (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Study_Satisfaction", "CATE Boxplots by Study Satisfaction (Quartile-based models)")
+
+# Print summary stats for Study Satisfaction (Quartile models)
+print(summarize_stratified(cate_all_q, "Study_Satisfaction"))
+
+# Study satisfaction
+plot_cate_stratified(cate_all, "Study_Satisfaction", "Mean CATE by Study Satisfaction")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Study_Satisfaction", "CATE Boxplots by Study Satisfaction")
+
+# Print summary stats for Study Satisfaction
+print(summarize_stratified(cate_all, "Study_Satisfaction"))
+```
+
+
+```{r}
+# Sleep duration (Quartile models)
+plot_cate_stratified(cate_all_q, "Sleep_Duration", "Mean CATE by Sleep Duration (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Sleep_Duration", "CATE Boxplots by Sleep Duration (Quartile-based models)")
+
+# Print summary stats for Sleep Duration (Quartile models)
+print(summarize_stratified(cate_all_q, "Sleep_Duration"))
+
+# Sleep duration
+plot_cate_stratified(cate_all, "Sleep_Duration", "Mean CATE by Sleep Duration")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Sleep_Duration", "CATE Boxplots by Sleep Duration")
+
+# Print summary stats for Sleep Duration
+print(summarize_stratified(cate_all, "Sleep_Duration"))
+```
+
+
+```{r}
+# Financial Stress (Quartile models)
+plot_cate_stratified(cate_all_q, "Financial_Stress", "Mean CATE by Financial Stress (Quartile-based models)")
+
+# Boxplot
+boxplot_cate_stratified(cate_all_q, "Financial_Stress", "CATE Boxplots by Financial Stress (Quartile-based models)")
+
+# Print summary stats for Financial Stress (Quartile models)
+print(summarize_stratified(cate_all_q, "Financial_Stress"))
+
+# Financial Stress
+plot_cate_stratified(cate_all, "Financial_Stress", "Mean CATE by Financial Stress")
+
+# Boxplot
+boxplot_cate_stratified(cate_all, "Financial_Stress", "CATE Boxplots by Financial Stress")
+
+# Print summary stats for Financial Stress
+print(summarize_stratified(cate_all, "Financial_Stress"))
+```
+
+
+```{r}
+# S-Learner - Logistic Regression
+# plot CATE by Age
+ggplot(cate_s_logistic, aes(x = Age, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Logistic Regression", y = "Estimated CATE", x = "Age") +
+  geom_point(data = cate_s_logistic %>%
+  group_by(Age) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Age, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text", 
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Age Means", 
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red", 
+           size = 3.5)     # Text size
+
+# plot CATE by CGPA  
+ggplot(cate_s_logistic, aes(x = CGPA, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Logistic Regression", y = "Estimated CATE", x = "CGPA")+ 
+  geom_point(data = cate_s_logistic %>%
+  group_by(CGPA) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = CGPA, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● CGPA Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Financial Stress
+ggplot(cate_s_logistic, aes(x = Financial_Stress, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Logistic Regression", y = "Estimated CATE", x = "Financial Stress")+ 
+  geom_point(data = cate_s_logistic %>%
+  group_by(Financial_Stress) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Financial_Stress, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Financial Stress Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Study Field
+ggplot(cate_s_logistic, aes(x = Study_Field, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Logistic Regression", y = "Estimated CATE", x = "Study Field")+ 
+  geom_point(data = cate_s_logistic %>%
+  group_by(Study_Field) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Study_Field, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Study Field Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)+     # Text size
+   theme(axis.text.x = element_text(
+    angle = -45,        # Rotate 45 degrees
+    hjust = 0.5,         # Horizontal justification
+    vjust = 0.5          # Vertical justification
+  ))
+
+```
+
+
+```{r}
+# S-Learner - Random Forest
+# plot CATE by Age
+ggplot(cate_s_rf, aes(x = Age, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Random Forest", y = "Estimated CATE", x = "Age") +
+  geom_point(data = cate_s_rf %>%
+  group_by(Age) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Age, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text", 
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Age Means", 
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red", 
+           size = 3.5)     # Text size
+# plot CATE by CGPA  
+ggplot(cate_s_rf, aes(x = CGPA, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Random Forest", y = "Estimated CATE", x = "CGPA")+ 
+  geom_point(data = cate_s_rf %>%
+  group_by(CGPA) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = CGPA, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● CGPA Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Financial Stress
+ggplot(cate_s_rf, aes(x = Financial_Stress, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Random Forest", y = "Estimated CATE", x = "Financial Stress")+ 
+  geom_point(data = cate_s_rf %>%
+  group_by(Financial_Stress) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Financial_Stress, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Financial Stress Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Study Field
+ggplot(cate_s_rf, aes(x = Study_Field, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "S-Learner - Random Forest", y = "Estimated CATE", x = "Study Field")+ 
+  geom_point(data = cate_s_rf %>%
+  group_by(Study_Field) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Study_Field, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Study Field Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)+     # Text size
+     theme(axis.text.x = element_text(
+    angle = -45,        # Rotate 45 degrees
+    hjust = 0.5,         # Horizontal justification
+    vjust = 0.5          # Vertical justification
+  ))
+```
+
+
+```{r}
+# T-Learner - Logistic Regression
+# plot CATE by Age
+ggplot(cate_t_logistic, aes(x = Age, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Logistic Regression", y = "Estimated CATE", x = "Age") +
+  geom_point(data = cate_t_logistic %>%
+  group_by(Age) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Age, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text", 
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Age Means", 
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red", 
+           size = 3.5)     # Text size
+
+# plot CATE by CGPA  
+ggplot(cate_t_logistic, aes(x = CGPA, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Logistic Regression", y = "Estimated CATE", x = "CGPA")+ 
+  geom_point(data = cate_t_logistic %>%
+  group_by(CGPA) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = CGPA, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● CGPA Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Financial Stress
+ggplot(cate_t_logistic, aes(x = Financial_Stress, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Logistic Regression", y = "Estimated CATE", x = "Financial Stress")+ 
+  geom_point(data = cate_t_logistic %>%
+  group_by(Financial_Stress) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Financial_Stress, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Financial Stress Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Study Field
+ggplot(cate_t_logistic, aes(x = Study_Field, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Logistic Regression", y = "Estimated CATE", x = "Study Field")+ 
+  geom_point(data = cate_t_logistic %>%
+  group_by(Study_Field) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Study_Field, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Study Field Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)+     # Text size
+   theme(axis.text.x = element_text(
+    angle = -45,        # Rotate 45 degrees
+    hjust = 0.5,         # Horizontal justification
+    vjust = 0.5          # Vertical justification
+  ))
+
+```
+
+
+```{r}
+# T-Learner - Random Forest
+# plot CATE by Age
+ggplot(cate_t_rf, aes(x = Age, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Random Forest", y = "Estimated CATE", x = "Age") +
+  geom_point(data = cate_t_rf %>%
+  group_by(Age) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Age, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text", 
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Age Means", 
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red", 
+           size = 3.5)     # Text size
+# plot CATE by CGPA  
+ggplot(cate_t_rf, aes(x = CGPA, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Random Forest", y = "Estimated CATE", x = "CGPA")+ 
+  geom_point(data = cate_t_rf %>%
+  group_by(CGPA) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = CGPA, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● CGPA Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Financial Stress
+ggplot(cate_t_rf, aes(x = Financial_Stress, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Random Forest", y = "Estimated CATE", x = "Financial Stress")+ 
+  geom_point(data = cate_t_rf %>%
+  group_by(Financial_Stress) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Financial_Stress, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Financial Stress Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)     # Text size
+
+# plot CATE by Study Field
+ggplot(cate_t_rf, aes(x = Study_Field, y = tau)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() + 
+  labs(title = "T-Learner - Random Forest", y = "Estimated CATE", x = "Study Field")+ 
+  geom_point(data = cate_t_rf %>%
+  group_by(Study_Field) %>%
+  summarise(mean_tau = mean(tau, na.rm=TRUE)), aes(x = Study_Field, y = mean_tau), color = "red",alpha=0.8, size = 2)+
+  annotate("text",
+           x = Inf,      # Anchored to right side
+           y = Inf,      # Anchored to top
+           label = "● Study Field Means",
+           hjust = 1.1,  # Horizontal adjustment
+           vjust = 1.2,  # Vertical adjustment
+           color = "red",
+           size = 3.5)+     # Text size
+     theme(axis.text.x = element_text(
+    angle = -45,        # Rotate 45 degrees
+    hjust = 0.5,         # Horizontal justification
+    vjust = 0.5          # Vertical justification
+  ))
+```
